@@ -1,4 +1,4 @@
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from robojudo.config import ASSETS_DIR, Config
 from robojudo.tools.tool_cfgs import DoFConfig
@@ -442,10 +442,17 @@ class HumanxPolicyCfg(PolicyCfg):
 
     @property
     def policy_file(self) -> str:
-        policy_file = ASSETS_DIR / f"models/{self.robot}/humanx/{self.policy_name}.pt"
+        policy_file = ASSETS_DIR / f"models/{self.robot}/humanx/{self.policy_name}.onnx"
         return policy_file.as_posix()
 
-    motion_data_path: str | None = None
+    motion_data_path_override: str | None = Field(default=None, alias="motion_data_path")
+
+    @property
+    def motion_data_path(self) -> str:
+        if self.motion_data_path_override is None:
+            motion_data_path = ASSETS_DIR / f"motions/{self.robot}/humanx/{self.policy_name}.pkl"
+            return motion_data_path.as_posix()
+        return self.motion_data_path_override
 
     action_scale: float = 1.0
     action_clip: float = 100.0
@@ -458,6 +465,5 @@ class HumanxPolicyCfg(PolicyCfg):
 
     dof_names: list[str]
     dof_effort_limits: list[float]
-    kps: list[float]
 
     motion_adjustments: dict[int, float] = {}

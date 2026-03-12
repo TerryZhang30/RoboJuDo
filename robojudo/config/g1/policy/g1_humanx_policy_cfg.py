@@ -1,28 +1,11 @@
 from robojudo.config import ASSETS_DIR
 from robojudo.policy.policy_cfgs import HumanxPolicyCfg
-from robojudo.tools.tool_cfgs import DoFConfig
+
+from .g1_asap_policy_cfg import G1_29AsapDoF
 
 
-class G1_29HumanxDoF(DoFConfig):
-    joint_names: list[str] = [
-        'left_hip_pitch_joint', 'left_hip_roll_joint', 'left_hip_yaw_joint',
-        'left_knee_joint', 'left_ankle_pitch_joint', 'left_ankle_roll_joint',
-        'right_hip_pitch_joint', 'right_hip_roll_joint', 'right_hip_yaw_joint',
-        'right_knee_joint', 'right_ankle_pitch_joint', 'right_ankle_roll_joint',
-        'waist_yaw_joint', 'waist_roll_joint', 'waist_pitch_joint',
-        'left_shoulder_pitch_joint', 'left_shoulder_roll_joint', 'left_shoulder_yaw_joint',
-        'left_elbow_joint', 'left_wrist_roll_joint', 'left_wrist_pitch_joint', 'left_wrist_yaw_joint',
-        'right_shoulder_pitch_joint', 'right_shoulder_roll_joint', 'right_shoulder_yaw_joint',
-        'right_elbow_joint', 'right_wrist_roll_joint', 'right_wrist_pitch_joint', 'right_wrist_yaw_joint'
-    ]
-
-    default_pos: list[float] = [
-        -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
-        -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
-        0.0, 0.0, 0.0,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    ]
+class G1_29HumanxDoF(G1_29AsapDoF):
+    """Humanx-specific PD parameters, inherits joint structure from ASAP"""
 
     stiffness: list[float] = [
         99.1, 99.1, 40.2, 99.1, 28.5, 28.5,
@@ -56,13 +39,7 @@ class G1HumanxPolicyCfg(HumanxPolicyCfg):
     def policy_file(self) -> str:
         if self.policy_file_override:
             return self.policy_file_override
-        return (ASSETS_DIR / f"models/{self.robot}/humanx/{self.policy_name}.pt").as_posix()
-
-    @property
-    def motion_data_path(self) -> str:
-        if self.motion_data_path is None:
-            return (ASSETS_DIR / f"motions/{self.robot}/humanx/{self.policy_name}.pkl").as_posix()
-        return self.motion_data_path
+        return (ASSETS_DIR / f"models/{self.robot}/humanx/{self.policy_name}.onnx").as_posix()
 
     actions_scale: float = 0.25
     action_clip: float = 100.0
@@ -106,14 +83,6 @@ class G1HumanxPolicyCfg(HumanxPolicyCfg):
         88.0, 35.0, 35.0,
         25.0, 25.0, 25.0, 25.0, 25.0, 13.4, 13.4,
         25.0, 25.0, 25.0, 25.0, 25.0, 13.4, 13.4,
-    ]
-
-    kps: list[float] = [
-        99.1, 99.1, 40.2, 99.1, 28.5, 28.5,
-        99.1, 99.1, 40.2, 99.1, 28.5, 28.5,
-        40.2, 28.5, 28.5,
-        14.3, 14.3, 14.3, 14.3, 14.3, 8.6, 8.6,
-        14.3, 14.3, 14.3, 14.3, 14.3, 8.6, 8.6,
     ]
 
     motion_adjustments: dict[int, float] = {}

@@ -48,7 +48,7 @@ class HumanxPolicy(Policy):
         action_scales = []
         for j_id in range(len(cfg_policy.dof_names)):
             e = cfg_policy.dof_effort_limits[j_id]
-            s = cfg_policy.kps[j_id]
+            s = cfg_policy.obs_dof.stiffness[j_id]
             action_scales.append(cfg_policy.actions_scale * e / s)
         self.action_scales = np.array(action_scales, dtype=np.float32)
 
@@ -75,6 +75,11 @@ class HumanxPolicy(Policy):
         self.timestep += 1
         if (self.timestep * self.dt) >= self.motion_length_s:
             self.flag_motion_done = True
+
+        for command in commands or []:
+            match command:
+                case "[MOTION_RESET]":
+                    self.reset()
 
     def _get_obs_history(self):
         history_list = [np.concatenate(items, axis=0) for items in zip(*self.history_buf, strict=True)]
