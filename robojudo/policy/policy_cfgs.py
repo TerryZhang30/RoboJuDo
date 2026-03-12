@@ -427,3 +427,37 @@ class TwistPolicyCfg(PolicyCfg):
     @property
     def mimic_obs_other_ids(self) -> list[int]:
         return [f for f in range(self.mimic_obs_total_degrees) if f not in self.mimic_obs_wrist_ids]
+
+
+class HumanxPolicyCfg(PolicyCfg):
+    """Configuration for Human-Object Interaction Policy"""
+
+    class ObsScalesCfg(Config):
+        dof_pos: float = 1.0
+        dof_vel: float = 0.05
+        base_ang_vel: float = 0.25
+
+    policy_type: str = "HumanxPolicy"
+    policy_name: str
+
+    @property
+    def policy_file(self) -> str:
+        policy_file = ASSETS_DIR / f"models/{self.robot}/humanx/{self.policy_name}.pt"
+        return policy_file.as_posix()
+
+    motion_data_path: str | None = None
+
+    action_scale: float = 1.0
+    action_clip: float = 100.0
+    actions_scale: float = 1.0
+
+    obs_scales: ObsScalesCfg = ObsScalesCfg()
+
+    obs_hist_length: dict[str, int] = {}
+    obs_hist_dims: dict[str, int] = {}
+
+    dof_names: list[str]
+    dof_effort_limits: list[float]
+    kps: list[float]
+
+    motion_adjustments: dict[int, float] = {}

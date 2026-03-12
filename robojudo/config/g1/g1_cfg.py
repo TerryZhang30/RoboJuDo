@@ -29,6 +29,7 @@ from .policy.g1_kungfubot_policy_cfg import G1KungfuBotGeneralPolicyCfg, G1Kungf
 from .policy.g1_smooth_policy_cfg import G1SmoothPolicyCfg  # noqa: F401
 from .policy.g1_twist_policy_cfg import G1TwistPolicyCfg  # noqa: F401
 from .policy.g1_unitree_policy_cfg import G1UnitreePolicyCfg, G1UnitreeWoGaitPolicyCfg  # noqa: F401
+from .policy.g1_humanx_policy_cfg import G1HumanxPolicyCfg  # noqa: F401
 
 
 # ======================== Basic Configs ======================== #
@@ -336,3 +337,37 @@ class g1_switch_beyondmimic(RlMultiPolicyPipelineCfg):
 
 
 # TIPS: check g1_loco_mimic_cfg.py for more complex examples
+
+
+@cfg_registry.register
+class g1_humanx(RlPipelineCfg):
+    """
+    Unitree G1 robot configuration, Humanx Policy for Human-Object Interaction tasks.
+    """
+
+    robot: str = "g1"
+    env: G1MujocoEnvCfg = G1MujocoEnvCfg(forward_kinematic=None, update_with_fk=False, born_place_align=True)
+
+    ctrl: list[KeyboardCtrlCfg] = [
+        KeyboardCtrlCfg(triggers={"i": "[SIM_REBORN]", "o": "[SHUTDOWN]", "r": "[MOTION_RESET]"}),
+    ]
+
+    policy: G1HumanxPolicyCfg = G1HumanxPolicyCfg(                                                                                             
+        policy_name="fake_action",
+        policy_file_override="/home/ps/Desktop/HumanX/logs/HumanX/20260304_053443-HOI_Student_fake_action_NEP-motion_tracking-g1_29dof/exported/model_40000.onnx",                                                                                       
+        motion_data_path="assets/motions/g1/humanx/BMaster_fake_action_and_shot_hoi_wsf.pkl"         
+    )
+
+
+
+@cfg_registry.register
+class g1_humanx_real(g1_humanx):
+    """Humanx Policy on Real G1 Robot"""
+
+    env: G1RealEnvCfg = G1RealEnvCfg(
+        env_type="UnitreeCppEnv",
+        unitree=G1UnitreeCfg(net_if="eth0"),
+    )
+
+    ctrl: list[UnitreeCtrlCfg] = [UnitreeCtrlCfg()]
+    do_safety_check: bool = True
