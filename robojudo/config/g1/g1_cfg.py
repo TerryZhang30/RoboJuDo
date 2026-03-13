@@ -360,6 +360,13 @@ class g1_humanx(RlPipelineCfg):
     policy: G1HumanxPolicyCfg = G1HumanxPolicyCfg(                                                                                             
         policy_name="fake_action",
         policy_file_override="/home/ps/Desktop/HumanX/logs/HumanX/20260304_053443-HOI_Student_fake_action_NEP-motion_tracking-g1_29dof/exported/model_40000.onnx",                                                                                       
+        motion_adjustments={
+            -6: 0.4,
+            -13: -0.2,
+            -8: -0.3,
+            4: 0.1,
+            10: 0.1,
+        },
         motion_data_path="assets/motions/g1/humanx/BMaster_fake_action_and_shot_hoi_wsf.pkl"         
     )
 
