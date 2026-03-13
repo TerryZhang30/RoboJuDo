@@ -371,7 +371,7 @@ class g1_humanx_real(g1_humanx):
 
     env: G1RealEnvCfg = G1RealEnvCfg(
         env_type="UnitreeCppEnv",
-        unitree=G1UnitreeCfg(net_if="eth0"),
+        unitree=G1UnitreeCfg(net_if="eth0", control_dt=0.01),
     )
 
     ctrl: list[UnitreeCtrlCfg] = [UnitreeCtrlCfg()]
