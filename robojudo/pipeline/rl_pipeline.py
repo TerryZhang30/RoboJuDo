@@ -228,6 +228,8 @@ class RlPipeline(Pipeline):
 
                 if self._button_pressed(ctrl_data, start_button):
                     logger.warning(f"Start confirmed by {start_button}.")
+                    self.policy.reset()
+                    self.timestep = 0
                     self.ctrl_manager.reset()
                     return
 
