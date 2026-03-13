@@ -346,7 +346,12 @@ class g1_humanx(RlPipelineCfg):
     """
 
     robot: str = "g1"
-    env: G1MujocoEnvCfg = G1MujocoEnvCfg(forward_kinematic=None, update_with_fk=False, born_place_align=True)
+    env: G1MujocoEnvCfg = G1MujocoEnvCfg(
+        forward_kinematic=None,
+        update_with_fk=False,
+        born_place_align=True,
+        sim_decimation=10,
+    )
 
     ctrl: list[KeyboardCtrlCfg] = [
         KeyboardCtrlCfg(triggers={"i": "[SIM_REBORN]", "o": "[SHUTDOWN]", "r": "[MOTION_RESET]"}),
