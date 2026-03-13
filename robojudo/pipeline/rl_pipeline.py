@@ -97,6 +97,8 @@ class RlPipeline(Pipeline):
         logger.info("Pipeline reset")
         self.timestep = 0
 
+        if hasattr(self.env, "reborn"):
+            self.env.reborn()  # pyright: ignore[reportAttributeAccessIssue]
         self.env.reset()
         # self.env.reborn(init_qpos=[0.2, 0.2, 0.8] + [ 0.707, 0, 0, 0.707]) # FOR SIM DEBUG
         self.policy.reset()
@@ -122,6 +124,9 @@ class RlPipeline(Pipeline):
                 case "[SHUTDOWN]":
                     logger.warning("Emergency shutdown!")
                     self.env.shutdown()
+                case "[MOTION_RESET]":
+                    logger.warning("Motion reset!")
+                    self.reset()
                 case "[SIM_REBORN]":
                     if hasattr(self.env, "reborn"):
                         logger.warning("Simulation Env reborn!")

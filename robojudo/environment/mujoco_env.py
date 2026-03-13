@@ -28,8 +28,12 @@ class MujocoEnv(Environment):
         self.model = mujoco.MjModel.from_xml_path(cfg_env.xml)  # pyright: ignore[reportAttributeAccessIssue]
         self.model.opt.timestep = self.sim_dt
         self.data = mujoco.MjData(self.model)  # pyright: ignore[reportAttributeAccessIssue]
-        # mujoco.mj_resetDataKeyframe(self.model, self.data, 0)
-        mujoco.mj_step(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
+        self._refresh_dof_indices()
+        if self.model.nkey > 0:
+            mujoco.mj_resetDataKeyframe(self.model, self.data, 0)  # pyright: ignore[reportAttributeAccessIssue]
+            mujoco.mj_forward(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
+        else:
+            mujoco.mj_step(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
 
         self.viewer = mujoco_viewer.MujocoViewer(
             self.model,
@@ -53,13 +57,38 @@ class MujocoEnv(Environment):
 
         self.update()  # get initial state
 
+    def update_dof_cfg(self, override_cfg=None):
+        super().update_dof_cfg(override_cfg=override_cfg)
+        if hasattr(self, "model"):
+            self._refresh_dof_indices()
+
+    def _refresh_dof_indices(self):
+        qpos_indices = []
+        qvel_indices = []
+        for joint_name in self.joint_names:
+            joint_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)  # pyright: ignore[reportAttributeAccessIssue]
+            if joint_id < 0:
+                raise ValueError(f"Joint {joint_name} not found in MuJoCo model")
+
+            qpos_addr = int(self.model.jnt_qposadr[joint_id])
+            qvel_addr = int(self.model.jnt_dofadr[joint_id])
+            qpos_indices.append(qpos_addr)
+            qvel_indices.append(qvel_addr)
+
+        self._dof_qpos_indices = np.asarray(qpos_indices, dtype=np.int32)
+        self._dof_qvel_indices = np.asarray(qvel_indices, dtype=np.int32)
+
     def reborn(self, init_qpos=None):
         if init_qpos is not None:
             self.data.qpos[0:7] = init_qpos
             self.data.qvel[:] = 0.0
             self.data.ctrl[:] = 0.0
-        else:
+            mujoco.mj_forward(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
+            return
+        if self.model.nkey > 0:
             mujoco.mj_resetDataKeyframe(self.model, self.data, 0)  # pyright: ignore[reportAttributeAccessIssue]
+        else:
+            mujoco.mj_resetData(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
         mujoco.mj_forward(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
 
     def reset(self):
@@ -85,8 +114,8 @@ class MujocoEnv(Environment):
 
     def update(self, simple=False):  # TODO: clean sensors in xml
         """simple: only update dof pos & vel"""
-        dof_pos = self.data.qpos.astype(np.float32)[-self.num_dofs :]
-        dof_vel = self.data.qvel.astype(np.float32)[-self.num_dofs :]
+        dof_pos = self.data.qpos[self._dof_qpos_indices].astype(np.float32)
+        dof_vel = self.data.qvel[self._dof_qvel_indices].astype(np.float32)
 
         self._dof_pos = dof_pos.copy()
         self._dof_vel = dof_vel.copy()
