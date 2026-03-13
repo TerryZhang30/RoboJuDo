@@ -374,5 +374,23 @@ class g1_humanx_real(g1_humanx):
         unitree=G1UnitreeCfg(net_if="eth0", control_dt=0.01),
     )
 
-    ctrl: list[UnitreeCtrlCfg] = [UnitreeCtrlCfg()]
+    ctrl: list[UnitreeCtrlCfg] = [
+        UnitreeCtrlCfg(
+            triggers={
+                "L2": "[SHUTDOWN]",
+                "X": "[MOTION_FADE_IN]",
+                "B": "[MOTION_FADE_OUT]",
+                "Y": "[MOTION_RESET]",
+            }
+        )
+    ]
     do_safety_check: bool = True
+    wait_for_zero_torque_start: bool = True
+    zero_torque_start_button: str = "Start"
+    prepare_duration_s: float = 2.0
+    prepare_reset_before_done: bool = False
+    wait_for_start_confirmation: bool = True
+    start_confirm_button: str = "L1"
+    shutdown_button: str = "L2"
+    start_hold_stiffness_scale: float = 3.0
+    start_hold_damping_scale: float = 3.0

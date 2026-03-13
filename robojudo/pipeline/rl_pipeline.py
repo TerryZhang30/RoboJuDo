@@ -81,6 +81,8 @@ class RlPipeline(Pipeline):
 
         self.env.update_dof_cfg(override_cfg=self.policy.cfg_action_dof)
         self.visualizer = self.env.visualizer
+        self.default_stiffness = np.asarray(self.env.stiffness, dtype=np.float32).copy()
+        self.default_damping = np.asarray(self.env.damping, dtype=np.float32).copy()
 
         self.freq = self.cfg.policy.freq
         self.dt = 1.0 / self.freq
@@ -148,6 +150,92 @@ class RlPipeline(Pipeline):
                 timestep=self.timestep,
             )
 
+    def _button_pressed(self, ctrl_data, button_name: str) -> bool:
+        for ctrl_name, ctrl_payload in ctrl_data.items():
+            if ctrl_name == "COMMANDS" or not hasattr(ctrl_payload, "get"):
+                continue
+            button_events = ctrl_payload.get("button_event", [])
+            for event in button_events:
+                if event.get("type") == "button" and event.get("name") == button_name and event.get("pressed", False):
+                    return True
+        return False
+
+    def _restore_default_gains(self):
+        if hasattr(self.env, "set_gains"):
+            self.env.set_gains(self.default_stiffness.tolist(), self.default_damping.tolist())
+
+    def _set_scaled_gains(self, stiffness_scale: float, damping_scale: float):
+        if hasattr(self.env, "set_gains"):
+            self.env.set_gains(
+                (self.default_stiffness * stiffness_scale).tolist(),
+                (self.default_damping * damping_scale).tolist(),
+            )
+
+    def _poll_ctrl_data(self):
+        self.env.update()
+        env_data = self.env.get_data()
+        ctrl_data = self.ctrl_manager.get_ctrl_data(env_data)
+        return env_data, ctrl_data
+
+    def wait_for_zero_torque_start(self):
+        if not self.cfg.wait_for_zero_torque_start:
+            return
+
+        start_button = self.cfg.zero_torque_start_button
+        shutdown_button = self.cfg.shutdown_button
+        logger.warning(f"Waiting for {start_button} in zero torque. Press {shutdown_button} to shutdown.")
+        self.ctrl_manager.reset()
+        self._set_scaled_gains(0.0, 0.0)
+        zero_target = np.zeros(self.env.num_dofs, dtype=np.float32)
+
+        try:
+            while True:
+                _env_data, ctrl_data = self._poll_ctrl_data()
+
+                if "[SHUTDOWN]" in ctrl_data.get("COMMANDS", []) or self._button_pressed(ctrl_data, shutdown_button):
+                    logger.warning(f"Shutdown requested before prepare by {shutdown_button}.")
+                    self.env.shutdown()
+                    raise SystemExit(0)
+
+                if self._button_pressed(ctrl_data, start_button):
+                    logger.warning(f"Zero torque released by {start_button}.")
+                    return
+
+                self.env.step(zero_target)
+                time.sleep(self.dt)
+        finally:
+            self._restore_default_gains()
+
+    def wait_for_start_confirmation(self):
+        if not self.cfg.wait_for_start_confirmation:
+            return
+
+        start_button = self.cfg.start_confirm_button
+        shutdown_button = self.cfg.shutdown_button
+        logger.warning(f"Waiting for {start_button} to start. Press {shutdown_button} to shutdown.")
+        self.ctrl_manager.reset()
+        desired_motor_angle = self.policy.get_init_dof_pos()
+        self._set_scaled_gains(self.cfg.start_hold_stiffness_scale, self.cfg.start_hold_damping_scale)
+
+        try:
+            while True:
+                _env_data, ctrl_data = self._poll_ctrl_data()
+
+                if "[SHUTDOWN]" in ctrl_data.get("COMMANDS", []) or self._button_pressed(ctrl_data, shutdown_button):
+                    logger.warning(f"Shutdown requested before start by {shutdown_button}.")
+                    self.env.shutdown()
+                    raise SystemExit(0)
+
+                if self._button_pressed(ctrl_data, start_button):
+                    logger.warning(f"Start confirmed by {start_button}.")
+                    self.ctrl_manager.reset()
+                    return
+
+                self.env.step(desired_motor_angle)
+                time.sleep(self.dt)
+        finally:
+            self._restore_default_gains()
+
     def step(self, dry_run=False):
         self.env.update()
         env_data = self.env.get_data()
@@ -176,7 +264,10 @@ class RlPipeline(Pipeline):
         current_motor_angle = np.array(self.env.dof_pos)
         # logger.info(f"{current_motor_angle=}")
 
-        traj_len = 1000
+        if self.cfg.prepare_duration_s is None:
+            traj_len = 1000
+        else:
+            traj_len = max(1, int(round(self.cfg.prepare_duration_s * self.freq)))
         last_step_time = time.time()
         logger.warning("prepare_init")
         pbar = ProgressBar("Prepare", traj_len)
@@ -184,7 +275,10 @@ class RlPipeline(Pipeline):
         for t in range(traj_len):
             current_motor_angle = np.array(self.env.dof_pos)
 
-            blend_ratio = np.minimum(t / 300, 1)
+            if self.cfg.prepare_duration_s is None:
+                blend_ratio = np.minimum(t / 300, 1)
+            else:
+                blend_ratio = t / max(traj_len - 1, 1)
             action = (1 - blend_ratio) * current_motor_angle + blend_ratio * desired_motor_angle
 
             # warm up network
@@ -200,7 +294,7 @@ class RlPipeline(Pipeline):
             last_step_time = time.time()
             pbar.update()
 
-            if t == 0.9 * traj_len:
+            if self.cfg.prepare_reset_before_done and t == 0.9 * traj_len:
                 logger.info(f"{'=' * 10} RESET ZERO POSITION {'=' * 10}")
                 self.reset()
 

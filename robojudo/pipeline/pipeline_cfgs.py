@@ -25,6 +25,18 @@ class PipelineCfg(Config):
     We recommend enabling this, however if motion is very aggressive, you may disable it.
     """
 
+    wait_for_zero_torque_start: bool = False
+    zero_torque_start_button: str = "Start"
+    wait_for_start_confirmation: bool = False
+    start_confirm_button: str = "L1"
+    shutdown_button: str = "L2"
+
+    prepare_duration_s: float | None = None
+    prepare_reset_before_done: bool = True
+
+    start_hold_stiffness_scale: float = 3.0
+    start_hold_damping_scale: float = 3.0
+
 
 class RlPipelineCfg(PipelineCfg):
     pipeline_type: str = "RlPipeline"

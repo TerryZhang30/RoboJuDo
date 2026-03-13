@@ -45,7 +45,9 @@ def main():
     pipeline = pipeline_class(cfg=cfg)
 
     if not cfg.env.is_sim:
+        pipeline.wait_for_zero_torque_start()
         pipeline.prepare()
+        pipeline.wait_for_start_confirmation()
 
     while True:
         time_start = time.time()
