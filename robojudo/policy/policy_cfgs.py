@@ -213,6 +213,9 @@ class AMOPolicyCfg(PolicyCfg):
 
     commands_map: list[list[float]]
 
+    motion_adjustments: dict[int, float] = {}
+    """Joint position offsets in env DoF space. Wrist joints are set directly, others shift AMO's targets."""
+
 
 class BeyondMimicPolicyCfg(PolicyCfg):
     policy_type: str = "BeyondMimicPolicy"

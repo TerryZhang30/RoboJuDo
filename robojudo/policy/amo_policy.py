@@ -108,6 +108,25 @@ class AMOPolicy(Policy):
                         commands[7] = not commands[7]
 
                 break
+            if key in ["KeyboardCtrl"]:
+                keys = ctrl_data[key]["keyboard_event"]
+                for event in keys:
+                    if event["type"] == "keyboard":
+                        value = event["pressed"] * 1.5
+                        match event["name"]:
+                            case "w":
+                                commands[2] = command_remap(-value, self.commands_map[2])
+                            case "s":
+                                commands[2] = command_remap(value, self.commands_map[2])
+                            case "a":
+                                commands[0] = command_remap(value, self.commands_map[0])
+                            case "d":
+                                commands[0] = command_remap(-value, self.commands_map[0])
+                            case "q":
+                                commands[1] = command_remap(value, self.commands_map[1])
+                            case "e":
+                                commands[1] = command_remap(-value, self.commands_map[1])
+                break
         return commands
 
     def get_observation(self, env_data, ctrl_data):

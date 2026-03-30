@@ -38,6 +38,40 @@ class PolicyWrapper:
         self.obs_adapter = DoFAdapter(env_dof_cfg.joint_names, self.policy.cfg_obs_dof.joint_names)
         self.actions_adapter = DoFAdapter(self.policy.cfg_action_dof.joint_names, env_dof_cfg.joint_names)
 
+        self._apply_motion_adjustments(cfg_policy, env_dof_cfg)
+
+    def _apply_motion_adjustments(self, cfg_policy: PolicyCfg, env_dof_cfg: DoFConfig):
+        """Process motion_adjustments: shift default_pos for policy-controlled joints,
+        store remaining offsets for direct pd_target application (shoulders/wrists)."""
+        self._pd_adjustments = np.zeros(len(env_dof_cfg.joint_names), dtype=np.float32)
+        self._has_pd_adjustments = False
+
+        motion_adjustments = getattr(cfg_policy, "motion_adjustments", None)
+        if not motion_adjustments:
+            return
+
+        env_joints = env_dof_cfg.joint_names
+        obs_joints = self.policy.cfg_obs_dof.joint_names
+        action_joints = self.policy.cfg_action_dof.joint_names
+
+        for raw_idx, offset in motion_adjustments.items():
+            idx = raw_idx if raw_idx >= 0 else len(env_joints) + raw_idx
+            joint_name = env_joints[idx]
+
+            if joint_name in obs_joints:
+                obs_idx = obs_joints.index(joint_name)
+                self.policy.default_dof_pos[obs_idx] += offset
+
+            if joint_name in action_joints:
+                action_idx = action_joints.index(joint_name)
+                self.policy.default_pos[action_idx] += offset
+            else:
+                self._pd_adjustments[idx] = offset
+                self._has_pd_adjustments = True
+
+            logger.info(f"Motion adjustment: {joint_name} (env[{raw_idx}]) += {offset}"
+                        f" | action={'yes' if joint_name in action_joints else 'direct'}")
+
     def get_observation(self, env_data: Box, ctrl_data: Box):
         env_data_adapted = env_data.copy()
         env_data_adapted.dof_pos = self.obs_adapter.fit(env_data_adapted.dof_pos)
@@ -51,7 +85,10 @@ class PolicyWrapper:
     def get_pd_target(self, obs):
         action = self.policy.get_action(obs)
         pd_target = action + self.policy.default_pos
-        return self.actions_adapter.fit(pd_target, template=self.env_dof_cfg.default_pos)
+        pd_target = self.actions_adapter.fit(pd_target, template=self.env_dof_cfg.default_pos)
+        if self._has_pd_adjustments:
+            pd_target += self._pd_adjustments
+        return pd_target
 
     def get_init_dof_pos(self):
         return self.actions_adapter.fit(self.policy.get_init_dof_pos(), template=self.env_dof_cfg.default_pos)
