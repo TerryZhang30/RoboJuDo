@@ -38,7 +38,13 @@ class PolicyWrapper:
         self.obs_adapter = DoFAdapter(env_dof_cfg.joint_names, self.policy.cfg_obs_dof.joint_names)
         self.actions_adapter = DoFAdapter(self.policy.cfg_action_dof.joint_names, env_dof_cfg.joint_names)
 
+        self._orig_default_dof_pos = self.policy.default_dof_pos.copy()
+        self._orig_default_pos = self.policy.default_pos.copy()
+        self._pose_adjusted = False
+
         self._apply_motion_adjustments(cfg_policy, env_dof_cfg)
+        if self._has_pd_adjustments or not np.array_equal(self._orig_default_dof_pos, self.policy.default_dof_pos):
+            self._pose_adjusted = True
 
     def _apply_motion_adjustments(self, cfg_policy: PolicyCfg, env_dof_cfg: DoFConfig):
         """Process motion_adjustments: shift default_pos for policy-controlled joints,
@@ -71,6 +77,24 @@ class PolicyWrapper:
 
             logger.info(f"Motion adjustment: {joint_name} (env[{raw_idx}]) += {offset}"
                         f" | action={'yes' if joint_name in action_joints else 'direct'}")
+
+    def toggle_motion_adjustments(self):
+        """Toggle between initial pose and the configured motion_adjustments."""
+        if self._pose_adjusted:
+            self.policy.default_dof_pos[:] = self._orig_default_dof_pos
+            self.policy.default_pos[:] = self._orig_default_pos
+            self._pd_adjustments[:] = 0.0
+            self._has_pd_adjustments = False
+            self._pose_adjusted = False
+            logger.warning("Pose toggled → initial")
+        else:
+            self.policy.default_dof_pos[:] = self._orig_default_dof_pos
+            self.policy.default_pos[:] = self._orig_default_pos
+            self._pd_adjustments[:] = 0.0
+            self._has_pd_adjustments = False
+            self._apply_motion_adjustments(self.policy.cfg_policy, self.env_dof_cfg)
+            self._pose_adjusted = True
+            logger.warning("Pose toggled → adjusted")
 
     def get_observation(self, env_data: Box, ctrl_data: Box):
         env_data_adapted = env_data.copy()
@@ -170,6 +194,8 @@ class RlPipeline(Pipeline):
                     if hasattr(self.env, "reborn"):
                         logger.warning("Simulation Env reborn!")
                         self.env.reborn()  # pyright: ignore[reportAttributeAccessIssue]
+                case "[POSE_TOGGLE]":
+                    self.policy.toggle_motion_adjustments()
 
         self.ctrl_manager.post_step_callback(ctrl_data)
 

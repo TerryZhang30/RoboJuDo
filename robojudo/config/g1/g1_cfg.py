@@ -28,7 +28,7 @@ from .policy.g1_h2h_policy_cfg import G1H2HPolicyCfg  # noqa: F401
 from .policy.g1_kungfubot_policy_cfg import G1KungfuBotGeneralPolicyCfg, G1KungfuBotPolicyCfg  # noqa: F401
 from .policy.g1_smooth_policy_cfg import G1SmoothPolicyCfg  # noqa: F401
 from .policy.g1_twist_policy_cfg import G1TwistPolicyCfg  # noqa: F401
-from .policy.g1_unitree_policy_cfg import G1UnitreePolicyCfg, G1UnitreeWoGaitPolicyCfg  # noqa: F401
+from .policy.g1_unitree_policy_cfg import G1UnitreePolicyCfg, G1UnitreeWoGaitDoF, G1UnitreeWoGaitPolicyCfg  # noqa: F401
 from .policy.g1_humanx_policy_cfg import G1HumanxPolicyCfg  # noqa: F401
 
 
@@ -93,6 +93,7 @@ class g1_switch(RlMultiPolicyPipelineCfg):
         KeyboardCtrlCfg(
             triggers_extra={
                 "Key.tab": "[POLICY_TOGGLE]",
+                "Key.up": "[POSE_TOGGLE]",
             }
         ),
         JoystickCtrlCfg(
@@ -105,11 +106,12 @@ class g1_switch(RlMultiPolicyPipelineCfg):
 
     policies: list[G1AmoPolicyCfg | G1HumanxPolicyCfg] = [
         G1AmoPolicyCfg(            motion_adjustments={
-                -6: 0.4,       # right_shoulder_roll  → obs target
-                -13: -0.2,     # left_shoulder_roll   → obs target
+                -6: 0.8,       # right_shoulder_roll  → obs target
+                -13: -0.6,     # left_shoulder_roll   → obs target
                 -8: -0.3,      # left_wrist_yaw       → direct set
-                4: 0.1,        # left_ankle_pitch      → action target
-                10: 0.1,       # right_ankle_pitch     → action target
+                -1:0.2,        # right_wrist_yaw
+                4: 0.05,        # left_ankle_pitch      → action target
+                10: 0.05,       # right_ankle_pitch     → action target
         },),
         G1HumanxPolicyCfg(),
     ]
@@ -141,9 +143,9 @@ class g1_locomimic(RlLocoMimicPipelineCfg):
         ),
     ]
 
-    loco_policy: G1UnitreePolicyCfg = G1UnitreePolicyCfg()
-    mimic_policies: list[G1AsapPolicyCfg] = [
-        G1AsapPolicyCfg(),
+    loco_policy: G1AmoPolicyCfg = G1AmoPolicyCfg()
+    mimic_policies: list[G1HumanxPolicyCfg] = [
+        G1HumanxPolicyCfg(),
     ]
 
 
@@ -365,11 +367,11 @@ class g1_amo_adjusted(RlPipelineCfg):
 
     policy: G1AmoPolicyCfg = G1AmoPolicyCfg(
         motion_adjustments={
-            -6: 0.4,       # right_shoulder_roll  → obs target
-            -13: -0.2,     # left_shoulder_roll   → obs target
+            -6: 0.8,       # right_shoulder_roll  → obs target
+            -13: -0.5,     # left_shoulder_roll   → obs target
             -8: -0.3,      # left_wrist_yaw       → direct set
-            4: 0.1,        # left_ankle_pitch      → action target
-            10: 0.1,       # right_ankle_pitch     → action target
+            4: 0.05,        # left_ankle_pitch      → action target
+            10: 0.05,       # right_ankle_pitch     → action target
         },
     )
 
@@ -405,7 +407,7 @@ class g1_humanx(RlPipelineCfg):
             4: 0.1,
             10: 0.1,
         },
-        motion_data_path="/home/zzx/Documents/RoboJuDo/assets/motions/g1/humanx/BMaster_fake_action_and_shot_hoi_first_435frames.pkl"         
+        motion_data_path="/home/zzx/Documents/RoboJuDo/assets/motions/g1/humanx/jumpshot.pkl"         
     )
 
 
@@ -440,6 +442,7 @@ class g1_humanx_real(g1_humanx):
     start_hold_stiffness_scale: float = 3.0
     start_hold_damping_scale: float = 3.0
 
+@cfg_registry.register
 class g1_humanx_amo_adjusted_real(g1_humanx_real):
     """Humanx Policy with AMO-like motion adjustments, on Real G1 Robot"""
 
@@ -455,16 +458,18 @@ class g1_humanx_amo_adjusted_real(g1_humanx_real):
                 10: 0.0,       # right_ankle_pitch     → action target
         },   
         ),
-        G1HumanxPolicyCfg(            
-            motion_data_path="/home/zzx/Documents/RoboJuDo/assets/motions/g1/humanx/BMaster_fake_action_and_shot_hoi_first_435frames.pkl" ,
-            policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/jumpshot.onnx"     ),
+        G1HumanxPolicyCfg(
+            policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/jumpshot.pt"
+            ),
     ]
     
     ctrl: list[UnitreeCtrlCfg] = [
         UnitreeCtrlCfg(
             triggers_extra={
-                "R1+A": "[POLICY_SWITCH],0",
-                "R1+B": "[POLICY_SWITCH],1",
+                "R1": "[POLICY_SWITCH],0",
+                "R2": "[POLICY_SWITCH],1",
+                "L2": "[SHUTDOWN]",
+                "A": "[POSE_TOGGLE]",
             }
         ),
     ]
@@ -477,5 +482,5 @@ class g1_humanx_amo_adjusted_real(g1_humanx_real):
     wait_for_start_confirmation: bool = True
     start_confirm_button: str = "L1"
     shutdown_button: str = "L2"
-    start_hold_stiffness_scale: float = 3.0
-    start_hold_damping_scale: float = 3.0
+    start_hold_stiffness_scale: float = 1.0
+    start_hold_damping_scale: float = 1.0

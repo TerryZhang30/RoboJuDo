@@ -1,5 +1,7 @@
 import logging
 
+import numpy as np
+
 import robojudo.environment
 import robojudo.policy
 from robojudo.controller import CtrlManager
@@ -105,6 +107,8 @@ class RlMultiPolicyPipeline(RlPipeline):
         )
         self.env.update_dof_cfg(override_cfg=self.policy.cfg_action_dof)
         self.visualizer = self.env.visualizer
+        self.default_stiffness = np.asarray(self.env.stiffness, dtype=np.float32).copy()
+        self.default_damping = np.asarray(self.env.damping, dtype=np.float32).copy()
 
         self.freq = self.cfg.policies[0].freq
         self.dt = 1.0 / self.freq
@@ -139,6 +143,9 @@ class RlMultiPolicyPipeline(RlPipeline):
                     policy_id = int(cmd.split(",")[1])
                     if policy_id < self.policy_manager.num_policies:
                         self.policy_manager.switch_policy(policy_id)
+
+                case "[POSE_TOGGLE]":
+                    self.policy_manager.policy.toggle_motion_adjustments()
 
         self.ctrl_manager.post_step_callback(ctrl_data)
 
