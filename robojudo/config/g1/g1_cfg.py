@@ -113,7 +113,10 @@ class g1_switch(RlMultiPolicyPipelineCfg):
                 4: 0.05,        # left_ankle_pitch      → action target
                 10: 0.05,       # right_ankle_pitch     → action target
         },),
-        G1HumanxPolicyCfg(),
+        G1HumanxPolicyCfg(
+            policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/model_128000.onnx",
+            motion_data_path="/home/zzx/Documents/RoboJuDo/assets/motions/g1/humanx/jumpshot.pkl",
+        ),
     ]
 
 
@@ -466,10 +469,10 @@ class g1_humanx_amo_adjusted_real(g1_humanx_real):
     ctrl: list[UnitreeCtrlCfg] = [
         UnitreeCtrlCfg(
             triggers_extra={
-                "R1": "[POLICY_SWITCH],0",
-                "R2": "[POLICY_SWITCH],1",
+                "X": "[POLICY_SWITCH],0",
+                "Y": "[POLICY_SWITCH],1",
                 "L2": "[SHUTDOWN]",
-                "A": "[POSE_TOGGLE]",
+                "R2": "[POSE_TOGGLE]",
             }
         ),
     ]

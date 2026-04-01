@@ -35,7 +35,7 @@ class HumanxPolicy(Policy):
         # Load motion data
         self.motion_data = joblib.load(cfg_policy.motion_data_path)
         self.motion_name = list(self.motion_data.keys())[0]
-        self.init_angles = self.motion_data[self.motion_name]['dof'][0, :].copy()
+        self.init_angles = self.motion_data[self.motion_name]['dof'][0, :].copy() # 0
 
         # Apply motion adjustments
         for idx, offset in cfg_policy.motion_adjustments.items():
