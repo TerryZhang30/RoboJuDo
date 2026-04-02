@@ -38,6 +38,8 @@ class PolicyWrapper:
         self.obs_adapter = DoFAdapter(env_dof_cfg.joint_names, self.policy.cfg_obs_dof.joint_names)
         self.actions_adapter = DoFAdapter(self.policy.cfg_action_dof.joint_names, env_dof_cfg.joint_names)
 
+        self._apply_init_angles_as_defaults(cfg_policy, env_dof_cfg)
+
         self._orig_default_dof_pos = self.policy.default_dof_pos.copy()
         self._orig_default_pos = self.policy.default_pos.copy()
         self._pose_adjusted = False
@@ -45,6 +47,28 @@ class PolicyWrapper:
         self._apply_motion_adjustments(cfg_policy, env_dof_cfg)
         if self._has_pd_adjustments or not np.array_equal(self._orig_default_dof_pos, self.policy.default_dof_pos):
             self._pose_adjusted = True
+
+    def _apply_init_angles_as_defaults(self, cfg_policy: PolicyCfg, env_dof_cfg: DoFConfig):
+        """Use init_angles from motion data (env-dof space) as default obs/action poses."""
+        if not getattr(cfg_policy, 'use_motion_as_default_pose', False):
+            return
+        init_angles = getattr(self.policy, 'init_angles', None)
+        if init_angles is None:
+            return
+
+        env_joints = env_dof_cfg.joint_names
+        obs_joints = self.policy.cfg_obs_dof.joint_names
+        action_joints = self.policy.cfg_action_dof.joint_names
+
+        for i, jname in enumerate(obs_joints):
+            if jname in env_joints:
+                self.policy.default_dof_pos[i] = init_angles[env_joints.index(jname)]
+
+        for i, jname in enumerate(action_joints):
+            if jname in env_joints:
+                self.policy.default_pos[i] = init_angles[env_joints.index(jname)]
+
+        logger.info("Applied motion data first-frame angles as default pose")
 
     def _apply_motion_adjustments(self, cfg_policy: PolicyCfg, env_dof_cfg: DoFConfig):
         """Process motion_adjustments: shift default_pos for policy-controlled joints,

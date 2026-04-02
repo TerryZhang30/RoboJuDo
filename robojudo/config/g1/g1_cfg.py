@@ -1,3 +1,4 @@
+from curses import use_default_colors
 from robojudo.config import cfg_registry
 from robojudo.controller.ctrl_cfgs import (
     JoystickCtrlCfg,  # noqa: F401
@@ -50,9 +51,9 @@ class g1(RlPipelineCfg):
         # KeyboardCtrlCfg(),
     ]
 
-    policy: G1UnitreePolicyCfg = G1UnitreePolicyCfg()
+    # policy: G1UnitreePolicyCfg = G1UnitreePolicyCfg()
     # policy: G1UnitreeWoGaitPolicyCfg = G1UnitreeWoGaitPolicyCfg()
-    # policy: G1AmoPolicyCfg = G1AmoPolicyCfg()
+    policy: G1AmoPolicyCfg = G1AmoPolicyCfg()
 
     # run_fullspeed: bool = env.is_sim
 
@@ -105,14 +106,18 @@ class g1_switch(RlMultiPolicyPipelineCfg):
     ]
 
     policies: list[G1AmoPolicyCfg | G1HumanxPolicyCfg] = [
-        G1AmoPolicyCfg(            motion_adjustments={
-                -6: 0.8,       # right_shoulder_roll  → obs target
-                -13: -0.6,     # left_shoulder_roll   → obs target
+        G1AmoPolicyCfg(            
+            motion_adjustments={
+                -6: 0.4,       # right_shoulder_roll  → obs target
+                -13: -0.2,     # left_shoulder_roll   → obs target
                 -8: -0.3,      # left_wrist_yaw       → direct set
-                -1:0.2,        # right_wrist_yaw
-                4: 0.05,        # left_ankle_pitch      → action target
-                10: 0.05,       # right_ankle_pitch     → action target
-        },),
+                -1:0.3,        # right_wrist_yaw
+                4: 0.1,        # left_ankle_pitch      → action target
+                10: 0.1,       # right_ankle_pitch     → action target
+        },
+        motion_data_path="/home/zzx/Documents/RoboJuDo/assets/motions/g1/humanx/jumpshot.pkl",
+        use_motion_as_default_pose=True,
+        ),
         G1HumanxPolicyCfg(
             policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/model_128000.onnx",
             motion_data_path="/home/zzx/Documents/RoboJuDo/assets/motions/g1/humanx/jumpshot.pkl",
@@ -370,12 +375,16 @@ class g1_amo_adjusted(RlPipelineCfg):
 
     policy: G1AmoPolicyCfg = G1AmoPolicyCfg(
         motion_adjustments={
-            -6: 0.8,       # right_shoulder_roll  → obs target
-            -13: -0.5,     # left_shoulder_roll   → obs target
+            -6: 0.2,       # right_shoulder_roll  → obs target
+            -13: -0.1,     # left_shoulder_roll   → obs target
             -8: -0.3,      # left_wrist_yaw       → direct set
+            -1:0.3,        # right_wrist_yaw
             4: 0.05,        # left_ankle_pitch      → action target
             10: 0.05,       # right_ankle_pitch     → action target
         },
+        motion_data_path_override="/home/zzx/Documents/RoboJuDo/assets/motions/g1/humanx/jumpshot.pkl" ,
+        use_motion_as_default_pose=True,
+
     )
 
 
@@ -452,14 +461,14 @@ class g1_humanx_amo_adjusted_real(g1_humanx_real):
     pipeline_type: str = "RlMultiPolicyPipeline"
 
     policies: list[G1AmoPolicyCfg | G1HumanxPolicyCfg] = [
-        G1AmoPolicyCfg(           
+        G1AmoPolicyCfg(
             motion_adjustments={
-                -6: 0.4,       # right_shoulder_roll  → obs target
-                -13: -0.2,     # left_shoulder_roll   → obs target
+                -6: -0.1,       # right_shoulder_roll  → obs target
+                -13: 0.2,     # left_shoulder_roll   → obs target
                 -8: -0.3,      # left_wrist_yaw       → direct set
-                4: 0.0,        # left_ankle_pitch      → action target
-                10: 0.0,       # right_ankle_pitch     → action target
-        },   
+                4: 0.1,        # left_ankle_pitch      → action target
+                10: 0.1,       # right_ankle_pitch     → action target
+            },
         ),
         G1HumanxPolicyCfg(
             policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/jumpshot.pt"

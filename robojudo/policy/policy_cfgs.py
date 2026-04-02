@@ -206,6 +206,14 @@ class AMOPolicyCfg(PolicyCfg):
         policy_adapter_norm_file = ASSETS_DIR / f"models/{self.robot}/amo/adapter_norm_stats.pt"
         return policy_adapter_norm_file.as_posix()
 
+    motion_data_path_override: str | None = Field(default=None, alias="motion_data_path")
+
+    @property
+    def motion_data_path(self) -> str:
+        if self.motion_data_path_override is None:
+            motion_data_path = ASSETS_DIR / f"motions/{self.robot}/humanx/jumpshot.pkl"
+            return motion_data_path.as_posix()
+        return self.motion_data_path_override
     # ======= POLICY SPECIFIC CONFIGURATION =======
     obs_scales: ObsScalesCfg = ObsScalesCfg()
 
@@ -215,6 +223,9 @@ class AMOPolicyCfg(PolicyCfg):
 
     motion_adjustments: dict[int, float] = {}
     """Joint position offsets in env DoF space. Wrist joints are set directly, others shift AMO's targets."""
+
+    use_motion_as_default_pose: bool = False
+    """When True, use the first frame of motion_data as the default dof position for obs/action baseline."""
 
 
 class BeyondMimicPolicyCfg(PolicyCfg):

@@ -115,7 +115,7 @@ class RlMultiPolicyPipeline(RlPipeline):
 
         self.self_check()
         self.reset()
-
+        
     def self_check(self):
         self.policy_manager.warmup_policy_indices = set(list(range(self.policy_manager.num_policies)))
         super().self_check()
