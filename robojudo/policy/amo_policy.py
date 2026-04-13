@@ -230,6 +230,3 @@ class AMOPolicy(Policy):
 
         scaled_actions = raw_action * self.action_scale
         return scaled_actions
-    
-    def get_init_dof_pos(self) -> np.ndarray:
-        return self.init_angles.copy()

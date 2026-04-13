@@ -469,11 +469,11 @@ class g1_humanx_amo_adjusted_real(g1_humanx_real):
     policies: list[G1AmoPolicyCfg | G1HumanxPolicyCfg] = [
         G1AmoPolicyCfg(
             motion_adjustments={
-                -6: -0.1,       # right_shoulder_roll  → obs target
-                -13: 0.2,     # left_shoulder_roll   → obs target
-                -8: -0.3,      # left_wrist_yaw       → direct set
-                4: 0.1,        # left_ankle_pitch      → action target
-                10: 0.1,       # right_ankle_pitch     → action target
+                -5: 0.3,
+                -12: -0.2,
+                -1: -0.3,
+                4: 0.05,
+                10: 0.05,
             },
             use_motion_as_default_pose=False,
         ),

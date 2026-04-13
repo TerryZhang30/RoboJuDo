@@ -1,4 +1,5 @@
 import logging
+import time
 
 import numpy as np
 
@@ -66,13 +67,25 @@ class PolicyManager:
         self.env.update_dof_cfg(override_cfg=self.policy.cfg_action_dof)
         logger.warning(f"Switched to policy: {policy_id}: {self.policy.name}")
 
-    def switch_policy(self, policy_id: int):
-        """Switch to the policy as policy_id after delay."""
+    def switch_policy(self, policy_id: int, on_before_set: "callable | None" = None):
+        """Switch to the policy as policy_id after delay.
+
+        Args:
+            policy_id: Target policy index.
+            on_before_set: Optional callback invoked right before the policy is
+                activated. Used by the pipeline to run a prepare interpolation.
+        """
         if not (0 <= policy_id < self.num_policies):
             raise ValueError(f"Policy id {policy_id} out of range [0, {self.num_policies})")
         self.policy_by_id(policy_id).reset()
         self.warmup_policy_indices.add(policy_id)
-        self.timer.add(lambda: self.set_policy(policy_id), delay_steps=self.DELAY_STEPS_SWITCH)
+
+        def _do_switch():
+            if on_before_set is not None:
+                on_before_set(policy_id)
+            self.set_policy(policy_id)
+
+        self.timer.add(_do_switch, delay_steps=self.DELAY_STEPS_SWITCH)
 
     def step(self, env_data, ctrl_data):
         # policy warmup
@@ -121,6 +134,50 @@ class RlMultiPolicyPipeline(RlPipeline):
         super().self_check()
         self.policy_manager.warmup_policy_indices = set()
 
+    def _prepare_for_switch(self, policy_id: int):
+        """Blend current policy's closed-loop pd_target toward target init pose.
+
+        The active policy (e.g. AMO) keeps running for balance. Each frame we
+        linearly blend its pd_target with the target policy's init pose so the
+        robot transitions smoothly while staying balanced.
+        """
+        target_policy = self.policy_manager.policy_by_id(policy_id)
+        desired_motor_angle = target_policy.get_init_dof_pos()
+
+        duration_s = self.cfg.switch_prepare_duration_s
+        if duration_s <= 0:
+            return
+
+        traj_len = max(1, int(round(duration_s * self.freq)))
+        last_step_time = time.time()
+        logger.warning(f"Switch prepare: blending to policy {policy_id} init pose over {duration_s}s")
+
+        self.policy_manager.timer.clear()
+
+        for t in range(traj_len):
+            blend_ratio = t / max(traj_len - 1, 1)
+
+            self.env.update()
+            env_data = self.env.get_data()
+            ctrl_data = self.ctrl_manager.get_ctrl_data(env_data)
+
+            obs, extras = self.policy.get_observation(env_data, ctrl_data)
+            active_pd_target = self.policy.get_pd_target(obs)
+
+            target_policy.get_observation(env_data, ctrl_data)
+
+            blended = (1 - blend_ratio) * active_pd_target + blend_ratio * desired_motor_angle
+            self.env.step(blended)
+
+            self.policy.post_step_callback(ctrl_data.get("COMMANDS", []))
+
+            time_diff = last_step_time + self.dt - time.time()
+            if time_diff > 0:
+                time.sleep(time_diff)
+            last_step_time = time.time()
+
+        logger.warning("Switch prepare done")
+
     def post_step_callback(self, env_data, ctrl_data, extras, pd_target):
         self.timestep += 1
 
@@ -137,12 +194,12 @@ class RlMultiPolicyPipeline(RlPipeline):
                 case "[POLICY_TOGGLE]":
                     logger.warning("Policy toggled!")
                     next_policy_id = (self.policy_manager.current_policy_id + 1) % self.policy_manager.num_policies
-                    self.policy_manager.switch_policy(next_policy_id)
+                    self.policy_manager.switch_policy(next_policy_id, on_before_set=self._prepare_for_switch)
 
                 case cmd if cmd.startswith("[POLICY_SWITCH]"):
                     policy_id = int(cmd.split(",")[1])
                     if policy_id < self.policy_manager.num_policies:
-                        self.policy_manager.switch_policy(policy_id)
+                        self.policy_manager.switch_policy(policy_id, on_before_set=self._prepare_for_switch)
 
                 case "[POSE_TOGGLE]":
                     self.policy_manager.policy.toggle_motion_adjustments()

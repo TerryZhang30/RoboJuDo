@@ -61,6 +61,9 @@ class RlMultiPolicyPipelineCfg(PipelineCfg):
     policies: list[PolicyCfg | Any] = []
     """First policy as init, rest as extra policies, can be switched to"""
 
+    switch_prepare_duration_s: float = 0.1
+    """Duration (seconds) to interpolate from current pose to target policy's init pose on switch."""
+
 
 class RlLocoMimicPipelineCfg(PipelineCfg):
     pipeline_type: str = "RlLocoMimicPipeline"
