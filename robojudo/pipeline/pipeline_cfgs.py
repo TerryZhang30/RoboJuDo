@@ -37,6 +37,9 @@ class PipelineCfg(Config):
     start_hold_stiffness_scale: float = 3.0
     start_hold_damping_scale: float = 3.0
 
+    switch_prepare_duration_s: float = 0.0
+    """Duration (seconds) to interpolate from current pose to target policy's init pose on policy switch."""
+
 
 class RlPipelineCfg(PipelineCfg):
     pipeline_type: str = "RlPipeline"
@@ -60,9 +63,6 @@ class RlMultiPolicyPipelineCfg(PipelineCfg):
 
     policies: list[PolicyCfg | Any] = []
     """First policy as init, rest as extra policies, can be switched to"""
-
-    switch_prepare_duration_s: float = 0.1
-    """Duration (seconds) to interpolate from current pose to target policy's init pose on switch."""
 
 
 class RlLocoMimicPipelineCfg(PipelineCfg):

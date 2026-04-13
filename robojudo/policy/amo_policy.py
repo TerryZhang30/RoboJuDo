@@ -17,9 +17,22 @@ class AMOPolicy(Policy):
 
     cfg_policy: AMOPolicyCfg
 
-    def __init__(self, cfg_policy, device):
+    def __init__(self, cfg_policy: AMOPolicyCfg, device):
         # device = "cuda" if torch.cuda.is_available() else "cpu"
         super().__init__(cfg_policy=cfg_policy, device=device)
+
+        # Load motion data for init pose.
+        # Motion data is in env 29-dof space (motion_dof_names ordering).
+        # We store init_angles in that same space so that get_init_dof_pos()
+        # returns a full env-dof vector covering all joints including upper body.
+        motion_data = joblib.load(cfg_policy.motion_data_path)
+        motion_name = list(motion_data.keys())[0]
+        self.init_angles = motion_data[motion_name]['dof'][0, :].astype(np.float32).copy()
+        self._motion_dof_names = cfg_policy.motion_dof_names
+
+        for idx, offset in cfg_policy.motion_adjustments.items():
+            real_idx = idx if idx >= 0 else len(self.init_angles) + idx
+            self.init_angles[real_idx] += offset
 
         # if cpu device:
         if self.device == "cpu":
@@ -87,6 +100,9 @@ class AMOPolicy(Policy):
 
     def post_step_callback(self, commands=None):
         self.timestep += 1
+
+    def get_init_dof_pos(self) -> np.ndarray:
+        return self.init_angles.copy()
 
     def _get_commands(self, ctrl_data):
         # if (ref_dof_pos := ctrl_data.get("ref_dof_pos", None)) is not None:
@@ -230,3 +246,4 @@ class AMOPolicy(Policy):
 
         scaled_actions = raw_action * self.action_scale
         return scaled_actions
+

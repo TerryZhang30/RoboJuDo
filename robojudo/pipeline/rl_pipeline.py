@@ -41,6 +41,7 @@ class PolicyWrapper:
         self._apply_init_angles_as_defaults(cfg_policy, env_dof_cfg)
 
         self._apply_motion_adjustments(cfg_policy, env_dof_cfg)
+        self._apply_init_angles_to_non_action_joints(env_dof_cfg)
         self._pose_adjusted = self._has_pd_adjustments
 
     def _apply_init_angles_as_defaults(self, cfg_policy: PolicyCfg, env_dof_cfg: DoFConfig):
@@ -90,6 +91,34 @@ class PolicyWrapper:
             logger.info(f"Motion adjustment: {joint_name} (env[{raw_idx}]) += {offset}"
                         f" | action={'policy-controlled (init only)' if joint_name in action_joints else 'direct pd'}")
 
+    def _apply_init_angles_to_non_action_joints(self, env_dof_cfg: DoFConfig):
+        """For joints not in action_dof, set pd_adjustments so that the PD target
+        equals the motion first-frame angle. This makes non-policy joints hold the
+        reference motion pose instead of env default_pos.
+
+        pd_target for non-action joints = env_default_pos + _pd_adjustments
+        We want pd_target = motion_first_frame, so:
+            _pd_adjustments = motion_first_frame - env_default_pos
+        """
+        init_angles = getattr(self.policy, 'init_angles', None)
+        motion_dof_names = getattr(self.policy, '_motion_dof_names', None)
+        if init_angles is None or motion_dof_names is None:
+            return
+
+        env_joints = env_dof_cfg.joint_names
+        env_default = np.asarray(env_dof_cfg.default_pos, dtype=np.float32)
+        action_joints = set(self.policy.cfg_action_dof.joint_names)
+
+        motion_lookup: dict[str, float] = {
+            name: float(init_angles[i])
+            for i, name in enumerate(motion_dof_names)
+        }
+
+        for env_idx, jname in enumerate(env_joints):
+            if jname not in action_joints and jname in motion_lookup:
+                self._pd_adjustments[env_idx] = motion_lookup[jname] - env_default[env_idx]
+                self._has_pd_adjustments = True
+
     def toggle_motion_adjustments(self):
         """Toggle direct pd_adjustments on/off (does not affect default_pos/default_dof_pos)."""
         if self._pose_adjusted:
@@ -101,6 +130,7 @@ class PolicyWrapper:
             self._pd_adjustments[:] = 0.0
             self._has_pd_adjustments = False
             self._apply_motion_adjustments(self.policy.cfg_policy, self.env_dof_cfg)
+            self._apply_init_angles_to_non_action_joints(self.env_dof_cfg)
             self._pose_adjusted = self._has_pd_adjustments
             logger.warning("Pose toggled → adjusted (pd adjustments on)")
 
@@ -124,7 +154,12 @@ class PolicyWrapper:
         return pd_target
 
     def get_init_dof_pos(self):
-        return self.actions_adapter.fit(self.policy.get_init_dof_pos(), template=self.env_dof_cfg.default_pos)
+        init_pos = self.policy.get_init_dof_pos()
+        env_num_dofs = len(self.env_dof_cfg.joint_names)
+        if len(init_pos) == env_num_dofs:
+            # Policy already returns env-space angles (e.g. AMO with motion data)
+            return init_pos
+        return self.actions_adapter.fit(init_pos, template=self.env_dof_cfg.default_pos)
 
     def __getattr__(self, name):
         """Fallback: delegate other func to the wrapped policy."""

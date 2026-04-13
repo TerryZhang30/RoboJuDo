@@ -1,3 +1,4 @@
+from robojudo.config.g1.policy.g1_asap_policy_cfg import G1_29AsapDoF
 from robojudo.policy.policy_cfgs import AMOPolicyCfg
 from robojudo.tools.tool_cfgs import DoFConfig
 
@@ -86,6 +87,8 @@ class G1AmoPolicyCfg(AMOPolicyCfg):
 
     obs_dof: DoFConfig = G1AmoDoF()
     action_dof: DoFConfig = G1AmoLowerDoF()
+
+    motion_dof_names: list[str] = G1_29AsapDoF().joint_names
 
     commands_map: list[list[float]] = [
         [-1.0, 0.0, 1.0],  # vel_y

@@ -71,6 +71,9 @@ class HumanxPolicy(Policy):
                      for k in sorted(self.history_obs_dims.keys())]
             self.history_buf.appendleft(obs_a)
 
+    def get_init_dof_pos(self) -> np.ndarray:
+        return self.init_angles.copy()
+
     def post_step_callback(self, commands: list[str] | None = None):
         self.timestep += 1
         if (self.timestep * self.dt) >= self.motion_length_s:
@@ -140,5 +143,4 @@ class HumanxPolicy(Policy):
 
         return actions * self.action_scales
 
-    def get_init_dof_pos(self) -> np.ndarray:
-        return self.init_angles.copy()
+

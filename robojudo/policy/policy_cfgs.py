@@ -224,6 +224,10 @@ class AMOPolicyCfg(PolicyCfg):
     motion_adjustments: dict[int, float] = {}
     """Joint position offsets in env DoF space. Wrist joints are set directly, others shift AMO's targets."""
 
+    motion_dof_names: list[str] = []
+    """Joint names corresponding to the motion data dof ordering. Required for mapping
+    motion first-frame angles to AMO's action_dof space (which is a subset)."""
+
     use_motion_as_default_pose: bool = False
     """When True, use the first frame of motion_data as the default dof position for obs/action baseline."""
 

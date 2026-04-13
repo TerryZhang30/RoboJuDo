@@ -91,6 +91,8 @@ class g1_switch(RlMultiPolicyPipelineCfg):
     robot: str = "g1"
     env: G1MujocoEnvCfg = G1MujocoEnvCfg()
 
+    switch_prepare_duration_s: float = 0.05
+
     ctrl: list[KeyboardCtrlCfg | JoystickCtrlCfg] = [
         KeyboardCtrlCfg(
             triggers_extra={
@@ -112,18 +114,12 @@ class g1_switch(RlMultiPolicyPipelineCfg):
 
     policies: list[G1AmoPolicyCfg | G1HumanxPolicyCfg | G1StandPolicyCfg] = [
         G1AmoPolicyCfg(
-            motion_adjustments={
-                -5: 0.3,
-                -12: -0.2,
-                -1: -0.3,
-                4: 0.05,
-                10: 0.05,
-            },
+            motion_adjustments={},
             motion_data_path="/home/zzx/Documents/RoboJuDo/assets/motions/g1/humanx/jumpshot.pkl",
             use_motion_as_default_pose=False,
         ),
         G1HumanxPolicyCfg(
-            policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/model_128000.onnx",
+            policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/jumpshot.onnx",
         ),
         G1StandPolicyCfg(
             policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/model_27000.onnx",
@@ -417,7 +413,7 @@ class g1_humanx(RlPipelineCfg):
 
     policy: G1HumanxPolicyCfg = G1HumanxPolicyCfg(                                                                                             
         policy_name="fake_action",
-        policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/jumpshot.onnx",                                                                                       
+        policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/model_689000.onnx",                                                                                       
         motion_adjustments={
             -6: 0.4,
             -13: -0.2,

@@ -62,10 +62,12 @@ class PolicyManager:
         self.warmup_policy_indices.discard(policy_id)
 
         self._current_policy_id = policy_id
-        # refresh env
-        self.env.reset()
         self.env.update_dof_cfg(override_cfg=self.policy.cfg_action_dof)
-        logger.warning(f"Switched to policy: {policy_id}: {self.policy.name}")
+
+        self.freq = self.policy.policy.freq
+        self.dt = 1.0 / self.freq
+
+        logger.warning(f"Switched to policy: {policy_id}: {self.policy.name} (freq={self.freq}Hz)")
 
     def switch_policy(self, policy_id: int, on_before_set: "callable | None" = None):
         """Switch to the policy as policy_id after delay.
@@ -83,6 +85,7 @@ class PolicyManager:
         def _do_switch():
             if on_before_set is not None:
                 on_before_set(policy_id)
+            self.policy_by_id(policy_id).reset()
             self.set_policy(policy_id)
 
         self.timer.add(_do_switch, delay_steps=self.DELAY_STEPS_SWITCH)
@@ -135,11 +138,11 @@ class RlMultiPolicyPipeline(RlPipeline):
         self.policy_manager.warmup_policy_indices = set()
 
     def _prepare_for_switch(self, policy_id: int):
-        """Blend current policy's closed-loop pd_target toward target init pose.
+        """Interpolate from current joint angles to target policy's init pose.
 
-        The active policy (e.g. AMO) keeps running for balance. Each frame we
-        linearly blend its pd_target with the target policy's init pose so the
-        robot transitions smoothly while staying balanced.
+        Records the actual joint positions once at the start, then linearly
+        interpolates toward the reference motion first frame without any
+        active policy influence.
         """
         target_policy = self.policy_manager.policy_by_id(policy_id)
         desired_motor_angle = target_policy.get_init_dof_pos()
@@ -150,26 +153,22 @@ class RlMultiPolicyPipeline(RlPipeline):
 
         traj_len = max(1, int(round(duration_s * self.freq)))
         last_step_time = time.time()
-        logger.warning(f"Switch prepare: blending to policy {policy_id} init pose over {duration_s}s")
+        logger.warning(f"Switch prepare: interpolating to policy {policy_id} init pose over {duration_s}s")
 
         self.policy_manager.timer.clear()
 
+        self.env.update()
+        start_motor_angle = np.array(self.env.dof_pos, dtype=np.float32)
+
         for t in range(traj_len):
-            blend_ratio = t / max(traj_len - 1, 1)
+            blend_ratio = (t + 1) / traj_len
 
-            self.env.update()
-            env_data = self.env.get_data()
-            ctrl_data = self.ctrl_manager.get_ctrl_data(env_data)
+            target_policy.get_observation(self.env.get_data(), self.ctrl_manager.get_ctrl_data(self.env.get_data()))
 
-            obs, extras = self.policy.get_observation(env_data, ctrl_data)
-            active_pd_target = self.policy.get_pd_target(obs)
-
-            target_policy.get_observation(env_data, ctrl_data)
-
-            blended = (1 - blend_ratio) * active_pd_target + blend_ratio * desired_motor_angle
+            blended = (1 - blend_ratio) * start_motor_angle + blend_ratio * desired_motor_angle
             self.env.step(blended)
 
-            self.policy.post_step_callback(ctrl_data.get("COMMANDS", []))
+            self.env.update()
 
             time_diff = last_step_time + self.dt - time.time()
             if time_diff > 0:
