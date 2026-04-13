@@ -40,13 +40,8 @@ class PolicyWrapper:
 
         self._apply_init_angles_as_defaults(cfg_policy, env_dof_cfg)
 
-        self._orig_default_dof_pos = self.policy.default_dof_pos.copy()
-        self._orig_default_pos = self.policy.default_pos.copy()
-        self._pose_adjusted = False
-
         self._apply_motion_adjustments(cfg_policy, env_dof_cfg)
-        if self._has_pd_adjustments or not np.array_equal(self._orig_default_dof_pos, self.policy.default_dof_pos):
-            self._pose_adjusted = True
+        self._pose_adjusted = self._has_pd_adjustments
 
     def _apply_init_angles_as_defaults(self, cfg_policy: PolicyCfg, env_dof_cfg: DoFConfig):
         """Use init_angles from motion data (env-dof space) as default obs/action poses."""
@@ -71,8 +66,9 @@ class PolicyWrapper:
         logger.info("Applied motion data first-frame angles as default pose")
 
     def _apply_motion_adjustments(self, cfg_policy: PolicyCfg, env_dof_cfg: DoFConfig):
-        """Process motion_adjustments: shift default_pos for policy-controlled joints,
-        store remaining offsets for direct pd_target application (shoulders/wrists)."""
+        """Process motion_adjustments: only apply offsets to non-policy joints as direct pd_target.
+        Does NOT modify default_pos / default_dof_pos so policy inference stays unchanged.
+        init_angles is already adjusted inside each policy's __init__."""
         self._pd_adjustments = np.zeros(len(env_dof_cfg.joint_names), dtype=np.float32)
         self._has_pd_adjustments = False
 
@@ -81,44 +77,32 @@ class PolicyWrapper:
             return
 
         env_joints = env_dof_cfg.joint_names
-        obs_joints = self.policy.cfg_obs_dof.joint_names
         action_joints = self.policy.cfg_action_dof.joint_names
 
         for raw_idx, offset in motion_adjustments.items():
             idx = raw_idx if raw_idx >= 0 else len(env_joints) + raw_idx
             joint_name = env_joints[idx]
 
-            if joint_name in obs_joints:
-                obs_idx = obs_joints.index(joint_name)
-                self.policy.default_dof_pos[obs_idx] += offset
-
-            if joint_name in action_joints:
-                action_idx = action_joints.index(joint_name)
-                self.policy.default_pos[action_idx] += offset
-            else:
+            if joint_name not in action_joints:
                 self._pd_adjustments[idx] = offset
                 self._has_pd_adjustments = True
 
             logger.info(f"Motion adjustment: {joint_name} (env[{raw_idx}]) += {offset}"
-                        f" | action={'yes' if joint_name in action_joints else 'direct'}")
+                        f" | action={'policy-controlled (init only)' if joint_name in action_joints else 'direct pd'}")
 
     def toggle_motion_adjustments(self):
-        """Toggle between initial pose and the configured motion_adjustments."""
+        """Toggle direct pd_adjustments on/off (does not affect default_pos/default_dof_pos)."""
         if self._pose_adjusted:
-            self.policy.default_dof_pos[:] = self._orig_default_dof_pos
-            self.policy.default_pos[:] = self._orig_default_pos
             self._pd_adjustments[:] = 0.0
             self._has_pd_adjustments = False
             self._pose_adjusted = False
-            logger.warning("Pose toggled → initial")
+            logger.warning("Pose toggled → initial (pd adjustments off)")
         else:
-            self.policy.default_dof_pos[:] = self._orig_default_dof_pos
-            self.policy.default_pos[:] = self._orig_default_pos
             self._pd_adjustments[:] = 0.0
             self._has_pd_adjustments = False
             self._apply_motion_adjustments(self.policy.cfg_policy, self.env_dof_cfg)
-            self._pose_adjusted = True
-            logger.warning("Pose toggled → adjusted")
+            self._pose_adjusted = self._has_pd_adjustments
+            logger.warning("Pose toggled → adjusted (pd adjustments on)")
 
     def get_observation(self, env_data: Box, ctrl_data: Box):
         env_data_adapted = env_data.copy()
@@ -136,6 +120,7 @@ class PolicyWrapper:
         pd_target = self.actions_adapter.fit(pd_target, template=self.env_dof_cfg.default_pos)
         if self._has_pd_adjustments:
             pd_target += self._pd_adjustments
+
         return pd_target
 
     def get_init_dof_pos(self):

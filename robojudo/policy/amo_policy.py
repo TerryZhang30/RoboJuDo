@@ -80,11 +80,6 @@ class AMOPolicy(Policy):
         self.adapter_input = torch.zeros((1, 8 + 4), device=self.device, dtype=torch.float32)
         self.adapter_output = torch.zeros((1, 15), device=self.device, dtype=torch.float32)
 
-        # Load motion data
-        self.motion_data = joblib.load(cfg_policy.motion_data_path)
-        self.motion_name = list(self.motion_data.keys())[0]
-        self.init_angles = self.motion_data[self.motion_name]['dof'][0, :].copy() # 0
-
         self.reset()
 
     def reset(self):
@@ -236,3 +231,5 @@ class AMOPolicy(Policy):
         scaled_actions = raw_action * self.action_scale
         return scaled_actions
     
+    def get_init_dof_pos(self) -> np.ndarray:
+        return self.init_angles.copy()
