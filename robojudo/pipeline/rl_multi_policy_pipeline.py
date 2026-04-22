@@ -168,6 +168,10 @@ class RlMultiPolicyPipeline(RlPipeline):
             blended = (1 - blend_ratio) * start_motor_angle + blend_ratio * desired_motor_angle
             self.env.step(blended)
 
+            if getattr(self.env, "ball_enabled", False) and not self.env._ball_released:
+                mid = self.env.get_hands_midpoint()
+                self.env.set_ball_pos(mid + np.array([0, 0, self.env._ball_cfg.hand_offset_z]))
+
             self.env.update()
 
             time_diff = last_step_time + self.dt - time.time()
@@ -235,8 +239,8 @@ class RlMultiPolicyPipeline(RlPipeline):
         pd_target = self.policy.get_pd_target(obs)
 
         if not dry_run:
+            self._apply_ball_info(extras)
             self.env.step(pd_target, extras.get("hand_pose", None))
-            # logger.debug(pd_target)
 
         self.post_step_callback(env_data, ctrl_data, extras, pd_target)
 

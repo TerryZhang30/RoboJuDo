@@ -238,6 +238,10 @@ class RlPipeline(Pipeline):
                     if hasattr(self.env, "reborn"):
                         logger.warning("Simulation Env reborn!")
                         self.env.reborn()  # pyright: ignore[reportAttributeAccessIssue]
+                case "[MOTION_REPLAY]":
+                    logger.warning("Motion replay!")
+                    if getattr(self.env, "ball_enabled", False):
+                        self.env.hold_ball()
                 case "[POSE_TOGGLE]":
                     self.policy.toggle_motion_adjustments()
 
@@ -345,6 +349,30 @@ class RlPipeline(Pipeline):
         finally:
             self._restore_default_gains()
 
+    def _apply_ball_info(self, extras: dict):
+        """Drive the ball position from policy extras when the env supports it."""
+        if not getattr(self.env, "ball_enabled", False):
+            return
+        ball_info = extras.get("ball_info")
+        if ball_info is None:
+            return
+
+        if self.env._ball_released:
+            return
+
+        if ball_info.get("use_hands_fallback"):
+            mid = self.env.get_hands_midpoint()
+            target = mid + np.array([0, 0, self.env._ball_cfg.hand_offset_z])
+            self.env.set_ball_pos(target)
+        elif "target_pos" in ball_info:
+            self.env.set_ball_pos(
+                ball_info["target_pos"],
+                ball_info.get("target_quat"),
+            )
+
+        if ball_info.get("released"):
+            self.env.release_ball()
+
     def step(self, dry_run=False):
         self.env.update()
         env_data = self.env.get_data()
@@ -359,6 +387,7 @@ class RlPipeline(Pipeline):
         pd_target = self.policy.get_pd_target(obs)
 
         if not dry_run:
+            self._apply_ball_info(extras)
             self.env.step(pd_target, extras.get("hand_pose", None))
 
         self.post_step_callback(env_data, ctrl_data, extras, pd_target)
@@ -394,6 +423,10 @@ class RlPipeline(Pipeline):
             self.step(dry_run=True)
 
             self.env.step(action)
+
+            if getattr(self.env, "ball_enabled", False) and not self.env._ball_released:
+                mid = self.env.get_hands_midpoint()
+                self.env.set_ball_pos(mid + np.array([0, 0, self.env._ball_cfg.hand_offset_z]))
 
             time_diff = last_step_time + self.dt - time.time()
             if time_diff > 0:

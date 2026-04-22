@@ -6,6 +6,19 @@ from robojudo.config import Config
 from robojudo.tools.tool_cfgs import DoFConfig, ForwardKinematicCfg, ZedOdometryCfg
 
 
+class BallCfg(Config):
+    """Configuration for a dynamic ball object in simulation."""
+    enabled: bool = False
+    radius: float = 0.1
+    mass: float = 0.62
+    rgba: list[float] = [0.85, 0.45, 0.15, 1.0]
+    condim: int = 6
+    friction: list[float] = [6.0, 0.5, 0.5]
+    init_pos: list[float] = [0.19, -0.03, 1.08]
+    hand_offset_z: float = 0.20
+    """Fallback: place ball this far above the midpoint of both hands."""
+
+
 class EnvCfg(Config):
     env_type: str  # name of the environment class
     is_sim: bool = False
@@ -35,6 +48,8 @@ class MujocoEnvCfg(EnvCfg):
     sim_decimation: int = 20
 
     visualize_extras: bool = True  # TODO: remove
+
+    ball: BallCfg = BallCfg()
 
 
 class RobotEnvCfg(EnvCfg):

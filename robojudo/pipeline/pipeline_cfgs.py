@@ -19,6 +19,9 @@ class PipelineCfg(Config):
     run_fullspeed: bool = False
     """If True, run the pipeline at full speed, ignoring the desired frequency"""
 
+    sim_slowmo_factor: float = 1.0
+    """Slow-motion factor for simulation. 2.0 = half speed, 3.0 = 1/3 speed, etc."""
+
     do_safety_check: bool = False
     """
     If True, perform safety check after each step.

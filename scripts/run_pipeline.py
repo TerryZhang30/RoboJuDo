@@ -49,6 +49,9 @@ def main():
         pipeline.prepare()
         pipeline.wait_for_start_confirmation()
 
+    slowmo = getattr(cfg, "sim_slowmo_factor", 1.0)
+    step_dt = pipeline.dt * slowmo
+
     while True:
         time_start = time.time()
         pipeline.step()
@@ -57,7 +60,7 @@ def main():
 
         # keep the pipeline running at the desired frequency
         if not cfg.run_fullspeed:
-            time_diff = pipeline.dt - time_diff
+            time_diff = step_dt - time_diff
             if time_diff > 0:
                 time.sleep(time_diff)
             else:

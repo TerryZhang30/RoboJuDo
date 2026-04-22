@@ -31,7 +31,9 @@ from .policy.g1_smooth_policy_cfg import G1SmoothPolicyCfg  # noqa: F401
 from .policy.g1_twist_policy_cfg import G1TwistPolicyCfg  # noqa: F401
 from .policy.g1_unitree_policy_cfg import G1UnitreePolicyCfg, G1UnitreeWoGaitDoF, G1UnitreeWoGaitPolicyCfg  # noqa: F401
 from .policy.g1_humanx_policy_cfg import G1HumanxPolicyCfg  # noqa: F401
+from robojudo.environment.env_cfgs import BallCfg  # noqa: F401
 from .policy.g1_stand_policy_cfg import G1StandPolicyCfg  # noqa: F401
+from .policy.g1_humanx_loop_cfg import G1HumanxLoopPolicyCfg  # noqa: F401
 
 
 # ======================== Basic Configs ======================== #
@@ -89,7 +91,16 @@ class g1_switch(RlMultiPolicyPipelineCfg):
     """
 
     robot: str = "g1"
-    env: G1MujocoEnvCfg = G1MujocoEnvCfg()
+    env: G1MujocoEnvCfg = G1MujocoEnvCfg(
+        ball=BallCfg(
+            enabled=False,
+            radius=0.11,
+            mass=0.1,
+            rgba=[0.85, 0.45, 0.15, 1.0],
+            init_pos=[0.19, -0.03, 1.08],
+            hand_offset_z=0.01,
+        ),
+    )
 
     switch_prepare_duration_s: float = 0.05
 
@@ -119,7 +130,7 @@ class g1_switch(RlMultiPolicyPipelineCfg):
             use_motion_as_default_pose=False,
         ),
         G1HumanxPolicyCfg(
-            policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/jumpshot.onnx",
+            policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/model_689000.onnx",
         ),
         G1StandPolicyCfg(
             policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/model_27000.onnx",
@@ -400,20 +411,30 @@ class g1_humanx(RlPipelineCfg):
     """
 
     robot: str = "g1"
+    sim_slowmo_factor: float = 3.0
+
     env: G1MujocoEnvCfg = G1MujocoEnvCfg(
         forward_kinematic=None,
         update_with_fk=False,
         born_place_align=True,
         sim_decimation=10,
+        ball=BallCfg(
+            enabled=True,
+            radius=0.11,
+            mass=0.1,
+            rgba=[0.85, 0.45, 0.15, 1.0],
+            init_pos=[0.19, -0.03, 0.88],
+            hand_offset_z=0.02,
+        ),
     )
 
     ctrl: list[KeyboardCtrlCfg] = [
         KeyboardCtrlCfg(triggers={"i": "[SIM_REBORN]", "o": "[SHUTDOWN]", "r": "[MOTION_RESET]"}),
     ]
 
-    policy: G1HumanxPolicyCfg = G1HumanxPolicyCfg(                                                                                             
+    policy: G1HumanxPolicyCfg = G1HumanxPolicyCfg(
         policy_name="fake_action",
-        policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/model_689000.onnx",                                                                                       
+        policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/model_689000.onnx",
         motion_adjustments={
             -6: 0.4,
             -13: -0.2,
@@ -421,7 +442,7 @@ class g1_humanx(RlPipelineCfg):
             4: 0.1,
             10: 0.1,
         },
-        motion_data_path="/home/zzx/Documents/RoboJuDo/assets/motions/g1/humanx/jumpshot.pkl"         
+        motion_data_path="/home/zzx/Documents/RoboJuDo/assets/motions/g1/humanx/BMaster_fake_action_and_shot_hoi_wsf.pkl",
     )
 
 
@@ -462,6 +483,8 @@ class g1_humanx_amo_adjusted_real(g1_humanx_real):
 
     pipeline_type: str = "RlMultiPolicyPipeline"
 
+    switch_prepare_duration_s: float = 1.5
+
     policies: list[G1AmoPolicyCfg | G1HumanxPolicyCfg] = [
         G1AmoPolicyCfg(
             motion_adjustments={
@@ -499,3 +522,72 @@ class g1_humanx_amo_adjusted_real(g1_humanx_real):
     shutdown_button: str = "L2"
     start_hold_stiffness_scale: float = 1.0
     start_hold_damping_scale: float = 1.0
+
+@cfg_registry.register
+class g1_humanx_loop(RlPipelineCfg):
+    """Humanx Loop Policy"""
+
+    robot: str = "g1"
+    env: G1MujocoEnvCfg = G1MujocoEnvCfg(
+        born_place_align=True,
+        sim_decimation=10,
+        ball=BallCfg(
+            enabled=True,
+            radius=0.13,
+            mass=0.2,
+            rgba=[0.85, 0.45, 0.15, 1.0],
+            init_pos=[0.19, -0.03, 0.88],
+            hand_offset_z=0.05,
+        ),
+    )
+
+    ctrl: list[KeyboardCtrlCfg] = [
+        KeyboardCtrlCfg(triggers={"i": "[SIM_REBORN]", "o": "[SHUTDOWN]", "r": "[MOTION_RESET]", "t": "[MOTION_REPLAY]"}),
+    ]
+
+    policy: G1HumanxLoopPolicyCfg = G1HumanxLoopPolicyCfg(
+        policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/loop.onnx",
+        motion_data_path="/home/zzx/Documents/RoboJuDo/assets/motions/g1/humanx/BMaster_fake_action_and_shot_hoi_loop.pkl",
+        # motion_adjustments={
+        #     -6: 0.4,
+        #     -13: -0.2,
+        #     -8: -0.3,
+        #     4: 0.1,
+        #     10: 0.1,
+        # },
+    )
+
+
+@cfg_registry.register
+class g1_humanx_loop_real(g1_humanx_loop):
+    """Humanx Loop Policy on Real G1 Robot"""
+    
+    env: G1RealEnvCfg = G1RealEnvCfg(
+        env_type="UnitreeCppEnv",
+        unitree=G1UnitreeCfg(net_if="eth0", control_dt=0.01),
+    )
+
+    ctrl: list[UnitreeCtrlCfg] = [
+        UnitreeCtrlCfg(
+            triggers={
+                "L2": "[SHUTDOWN]",
+                "Y": "[MOTION_RESET]",
+                "A": "[MOTION_REPLAY]",
+            }
+        )
+    ]
+
+    policy: G1HumanxLoopPolicyCfg = G1HumanxLoopPolicyCfg(
+        policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/loop.onnx",
+        motion_data_path="/home/zzx/Documents/RoboJuDo/assets/motions/g1/humanx/BMaster_fake_action_and_shot_hoi_loop.pkl",
+    )
+
+    wait_for_zero_torque_start: bool = True
+    zero_torque_start_button: str = "Start"
+    prepare_duration_s: float = 2.0
+    prepare_reset_before_done: bool = False
+    wait_for_start_confirmation: bool = True
+    start_confirm_button: str = "L1"
+    shutdown_button: str = "L2"
+    start_hold_stiffness_scale: float = 3.0
+    start_hold_damping_scale: float = 3.0

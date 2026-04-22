@@ -7,23 +7,23 @@ import numpy as np
 import onnxruntime as ort
 
 from robojudo.policy import Policy, policy_registry
-from robojudo.policy.policy_cfgs import HumanxPolicyCfg
+from robojudo.policy.policy_cfgs import HumanxLoopPolicyCfg
 from robojudo.utils.util_func import quat_rotate_inverse_np
 
 logger = logging.getLogger(__name__)
 
 
 @policy_registry.register
-class HumanxPolicy(Policy):
-    """Human-Object Interaction Policy"""
+class HumanxLoopPolicy(Policy):
+    """Human-Object Interaction Loop Policy"""
 
-    cfg_policy: HumanxPolicyCfg
+    cfg_policy: HumanxLoopPolicyCfg
 
-    def __init__(self, cfg_policy: HumanxPolicyCfg, device):
+    def __init__(self, cfg_policy: HumanxLoopPolicyCfg, device):
         if not os.path.isfile(cfg_policy.policy_file):
             raise FileNotFoundError(f"Model file not found at {cfg_policy.policy_file}")
 
-        logger.debug(f"Loading humanx policy from {cfg_policy.policy_file}")
+        logger.debug(f"Loading humanx loop policy from {cfg_policy.policy_file}")
         self.session = ort.InferenceSession(cfg_policy.policy_file)
         self.input_names = [i.name for i in self.session.get_inputs()]
         self.output_names = [o.name for o in self.session.get_outputs()]
@@ -82,6 +82,17 @@ class HumanxPolicy(Policy):
                      for k in sorted(self.history_obs_dims.keys())]
             self.history_buf.appendleft(obs_a)
 
+    def soft_reset(self):
+        """Restart motion phase without changing robot physical state."""
+        self.timestep = 0
+        self.flag_motion_done = False
+        self.last_action = np.zeros(self.num_actions, dtype=np.float32)
+        self.history_buf.clear()
+        for _ in range(self.history_buf.maxlen):
+            obs_a = [np.zeros(self.history_obs_dims[k], dtype=np.float32)
+                     for k in sorted(self.history_obs_dims.keys())]
+            self.history_buf.appendleft(obs_a)
+
     def get_init_dof_pos(self) -> np.ndarray:
         return self.init_angles.copy()
 
@@ -94,6 +105,8 @@ class HumanxPolicy(Policy):
             match command:
                 case "[MOTION_RESET]":
                     self.reset()
+                case "[MOTION_REPLAY]":
+                    self.soft_reset()
 
     def _get_obs_history(self):
         history_list = [np.concatenate(items, axis=0) for items in zip(*self.history_buf, strict=True)]
@@ -104,6 +117,10 @@ class HumanxPolicy(Policy):
         base_ang_vel = env_data.base_ang_vel
         dof_pos = env_data.dof_pos
         dof_vel = env_data.dof_vel
+
+        # compute motion_phase
+        ref_motion_phase = np.clip(np.array([(self.timestep * self.dt) / self.motion_length_s]), 0, 0.97)
+        logger.info(f"ref_motion_phase: {ref_motion_phase}")
 
         dof_pos_minus_default = dof_pos - self.default_dof_pos
         projected_gravity = quat_rotate_inverse_np(base_quat, np.array([0, 0, -1]))
@@ -132,6 +149,7 @@ class HumanxPolicy(Policy):
             "history_obs_buf": history,
             "local_ref_origin_pos_xy": local_ref_origin_pos_xy,
             "dif_ref_heading": dif_ref_heading,
+            "ref_motion_phase": ref_motion_phase,
         }
 
         # Build observation (config-driven)

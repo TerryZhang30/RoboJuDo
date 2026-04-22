@@ -25,9 +25,18 @@ class MujocoEnv(Environment):
         self.sim_decimation = cfg_env.sim_decimation
         self.control_dt = self.sim_dt * self.sim_decimation
 
-        self.model = mujoco.MjModel.from_xml_path(cfg_env.xml)  # pyright: ignore[reportAttributeAccessIssue]
+        self._ball_cfg = cfg_env.ball
+        self._ball_body_id: int = -1
+        self._ball_jnt_qpos_addr: int = -1
+        self._ball_released: bool = False
+
+        if cfg_env.ball.enabled:
+            self.model, self.data = self._build_model_with_ball(cfg_env)
+        else:
+            self.model = mujoco.MjModel.from_xml_path(cfg_env.xml)  # pyright: ignore[reportAttributeAccessIssue]
+            self.data = mujoco.MjData(self.model)  # pyright: ignore[reportAttributeAccessIssue]
+
         self.model.opt.timestep = self.sim_dt
-        self.data = mujoco.MjData(self.model)  # pyright: ignore[reportAttributeAccessIssue]
         self._refresh_dof_indices()
         if self.model.nkey > 0:
             mujoco.mj_resetDataKeyframe(self.model, self.data, 0)  # pyright: ignore[reportAttributeAccessIssue]
@@ -57,6 +66,95 @@ class MujocoEnv(Environment):
 
         self.update()  # get initial state
 
+    # ------------------------------------------------------------------
+    # Ball helpers
+    # ------------------------------------------------------------------
+
+    def _build_model_with_ball(self, cfg_env: MujocoEnvCfg):
+        """Use MjSpec to inject a free-body ball into the scene."""
+        ball = cfg_env.ball
+        spec = mujoco.MjSpec.from_file(cfg_env.xml)  # pyright: ignore[reportAttributeAccessIssue]
+
+        body = spec.worldbody.add_body()
+        body.name = "ball"
+        body.pos = ball.init_pos
+
+        fj = body.add_freejoint()
+        fj.name = "ball_joint"
+
+        geom = body.add_geom()
+        geom.name = "ball_geom"
+        geom.type = mujoco.mjtGeom.mjGEOM_SPHERE  # pyright: ignore[reportAttributeAccessIssue]
+        geom.size = [ball.radius, 0, 0]
+        geom.mass = ball.mass
+        geom.rgba = ball.rgba
+        geom.condim = ball.condim
+        geom.friction = ball.friction
+        # geom.solref = [-1000, -100]
+        geom.solimp = [1.0, 1.0, 0.001, 0.5, 2.0]
+
+        model = spec.compile()
+        data = mujoco.MjData(model)  # pyright: ignore[reportAttributeAccessIssue]
+
+        self._ball_body_id = mujoco.mj_name2id(  # pyright: ignore[reportAttributeAccessIssue]
+            model, mujoco.mjtObj.mjOBJ_BODY, "ball"
+        )
+        ball_jnt_id = mujoco.mj_name2id(  # pyright: ignore[reportAttributeAccessIssue]
+            model, mujoco.mjtObj.mjOBJ_JOINT, "ball_joint"
+        )
+        self._ball_jnt_qpos_addr = int(model.jnt_qposadr[ball_jnt_id])
+        logger.info(
+            f"Ball added: body_id={self._ball_body_id}, "
+            f"qpos_addr={self._ball_jnt_qpos_addr}, nq={model.nq}"
+        )
+        return model, data
+
+    @property
+    def ball_enabled(self) -> bool:
+        return self._ball_body_id >= 0
+
+    def set_ball_pos(self, pos: np.ndarray, quat: np.ndarray | None = None):
+        """Teleport the ball to *pos* (xyz) and zero its velocity."""
+        if not self.ball_enabled:
+            return
+        addr = self._ball_jnt_qpos_addr
+        self.data.qpos[addr: addr + 3] = pos
+        if quat is not None:
+            self.data.qpos[addr + 3: addr + 7] = quat
+        else:
+            self.data.qpos[addr + 3: addr + 7] = [1, 0, 0, 0]
+
+        vel_addr = self.model.jnt_dofadr[
+            mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "ball_joint")  # pyright: ignore[reportAttributeAccessIssue]
+        ]
+        self.data.qvel[vel_addr: vel_addr + 6] = 0.0
+
+    def get_ball_pos(self) -> np.ndarray:
+        if not self.ball_enabled:
+            return np.zeros(3)
+        return self.data.xpos[self._ball_body_id].copy()
+
+    def release_ball(self):
+        """Stop kinematic tracking — ball enters free dynamics."""
+        self._ball_released = True
+        logger.info("Ball released into free dynamics")
+
+    def hold_ball(self):
+        """Re-enable kinematic tracking."""
+        self._ball_released = False
+
+    def get_hands_midpoint(self) -> np.ndarray:
+        """Return the midpoint between left and right hand collision geoms."""
+        left_id = mujoco.mj_name2id(  # pyright: ignore[reportAttributeAccessIssue]
+            self.model, mujoco.mjtObj.mjOBJ_GEOM, "left_hand_collision"
+        )
+        right_id = mujoco.mj_name2id(  # pyright: ignore[reportAttributeAccessIssue]
+            self.model, mujoco.mjtObj.mjOBJ_GEOM, "right_hand_collision"
+        )
+        if left_id < 0 or right_id < 0:
+            return np.array(self._ball_cfg.init_pos, dtype=np.float64)
+        return (self.data.geom_xpos[left_id] + self.data.geom_xpos[right_id]) / 2.0
+
     def update_dof_cfg(self, override_cfg=None):
         super().update_dof_cfg(override_cfg=override_cfg)
         if hasattr(self, "model"):
@@ -84,11 +182,14 @@ class MujocoEnv(Environment):
             self.data.qvel[:] = 0.0
             self.data.ctrl[:] = 0.0
             mujoco.mj_forward(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
-            return
-        if self.model.nkey > 0:
+        elif self.model.nkey > 0:
             mujoco.mj_resetDataKeyframe(self.model, self.data, 0)  # pyright: ignore[reportAttributeAccessIssue]
         else:
             mujoco.mj_resetData(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
+
+        if self.ball_enabled:
+            self._ball_released = False
+            self.set_ball_pos(np.array([0.0, 0.0, -1.0]))
         mujoco.mj_forward(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
 
     def reset(self):

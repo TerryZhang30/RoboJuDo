@@ -485,3 +485,42 @@ class HumanxPolicyCfg(PolicyCfg):
     dof_effort_limits: list[float]
 
     motion_adjustments: dict[int, float] = {}
+
+class HumanxLoopPolicyCfg(PolicyCfg):
+    """Configuration for Human-Object Interaction Loop Policy"""
+
+    class ObsScalesCfg(Config):
+        dof_pos: float = 1.0
+        dof_vel: float = 0.05
+        base_ang_vel: float = 0.25
+
+    policy_type: str = "HumanxLoopPolicy"
+    policy_name: str
+
+    @property
+    def policy_file(self) -> str:
+        policy_file = ASSETS_DIR / f"models/{self.robot}/humanx/{self.policy_name}.onnx"
+        return policy_file.as_posix()
+
+    motion_data_path_override: str | None = Field(default=None, alias="motion_data_path")
+
+    @property
+    def motion_data_path(self) -> str:
+        if self.motion_data_path_override is None:
+            motion_data_path = ASSETS_DIR / f"motions/{self.robot}/humanx/{self.policy_name}.pkl"
+            return motion_data_path.as_posix()
+        return self.motion_data_path_override
+
+    action_scale: float = 1.0
+    action_clip: float = 100.0
+    actions_scale: float = 1.0
+
+    obs_scales: ObsScalesCfg = ObsScalesCfg()
+
+    obs_hist_length: dict[str, int] = {}
+    obs_hist_dims: dict[str, int] = {}
+
+    dof_names: list[str]
+    dof_effort_limits: list[float]
+
+    motion_adjustments: dict[int, float] = {}
