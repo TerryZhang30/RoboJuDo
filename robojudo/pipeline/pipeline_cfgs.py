@@ -36,6 +36,8 @@ class PipelineCfg(Config):
 
     prepare_duration_s: float | None = None
     prepare_reset_before_done: bool = True
+    reset_to_policy_init_pose: bool = False
+    """If True, reset supported simulation envs directly to the policy's init joint pose."""
 
     start_hold_stiffness_scale: float = 3.0
     start_hold_damping_scale: float = 3.0

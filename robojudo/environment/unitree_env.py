@@ -34,6 +34,7 @@ from robojudo.environment.utils.unitree_command import (
 )
 from robojudo.environment.utils.unitree_rotation import transform_imu_data
 from robojudo.tools.retarget import HandRetarget
+from robojudo.tools.real_depth_camera import RealDepthCamera
 from robojudo.utils.rotation import TransformAlignment
 from robojudo.utils.util_func import calc_heading_quat_np, quat_rotate_inverse_np
 
@@ -51,6 +52,7 @@ class UnitreeEnv(Environment):
         ChannelFactoryInitialize(0, self.cfg_env.unitree.net_if)
 
         self.RemoteControllerHandler = None
+        self.depth_camera: RealDepthCamera | None = None
         self.robot = self.cfg_env.unitree.robot
         self._control_dt = self.cfg_env.unitree.control_dt
         self._msg_type = self.cfg_env.unitree.msg_type
@@ -137,6 +139,8 @@ class UnitreeEnv(Environment):
 
         self.lowcmd_send_thread = RecurrentThread(interval=self._control_dt, target=self.send_cmd, name="control")
         self.lowcmd_send_thread.Start()
+        if self.cfg_env.real_depth_camera.enabled:
+            self.depth_camera = RealDepthCamera(self.cfg_env.real_depth_camera)
 
         # born place alignment extra for h1 torso
         if self.robot == "h1":
@@ -282,6 +286,15 @@ class UnitreeEnv(Environment):
         if self.RemoteControllerHandler:
             self.RemoteControllerHandler(self.low_state.wireless_remote)
 
+    def get_data(self):
+        env_data = super().get_data()
+        if self.depth_camera is not None:
+            depth_image, timestamp = self.depth_camera.get_depth_image()
+            env_data["depth_image"] = depth_image
+            env_data["image"] = depth_image
+            env_data["camera_timestamp"] = timestamp
+        return env_data
+
     def step(self, pd_target, hand_pose=None):
         assert len(pd_target) == self.num_dofs, "pd_target len should be num_dofs of env"
 
@@ -305,6 +318,9 @@ class UnitreeEnv(Environment):
     def shutdown(self):
         self.set_damping_mode()
         self.enabled = False
+        if self.depth_camera is not None:
+            self.depth_camera.close()
+            self.depth_camera = None
 
     def set_zero_torque_mode(self):
         create_zero_cmd(self.low_cmd)

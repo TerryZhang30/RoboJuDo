@@ -200,16 +200,25 @@ class RlPipeline(Pipeline):
         for _ in range(10):
             self.step(dry_run=True)
 
+    def _reset_init_dof_pos(self):
+        if not self.cfg.reset_to_policy_init_pose:
+            return None
+        return self.policy.get_init_dof_pos()
+
+    def _reborn_env(self):
+        if hasattr(self.env, "reborn"):
+            self.env.reborn(init_dof_pos=self._reset_init_dof_pos())  # pyright: ignore[reportAttributeAccessIssue]
+
     def reset(self):
         logger.info("Pipeline reset")
         self.timestep = 0
 
-        if hasattr(self.env, "reborn"):
-            self.env.reborn()  # pyright: ignore[reportAttributeAccessIssue]
+        self._reborn_env()
         self.env.reset()
         # self.env.reborn(init_qpos=[0.2, 0.2, 0.8] + [ 0.707, 0, 0, 0.707]) # FOR SIM DEBUG
         self.policy.reset()
         self.ctrl_manager.reset()
+        self._place_initial_ball_from_policy()
 
     def safety_check(self):
         if not self.do_safety_check:
@@ -219,13 +228,14 @@ class RlPipeline(Pipeline):
         if abs(angle) > 1.0:  # more than ~57 degrees
             logger.error("Robot fallen! Shutdown for safety.")
             if hasattr(self.env, "reborn"):
-                self.env.reborn()  # pyright: ignore[reportAttributeAccessIssue]
+                self._reborn_env()
             else:
                 self.env.shutdown()
 
     def post_step_callback(self, env_data, ctrl_data, extras, pd_target):
         self.timestep += 1
         commands = ctrl_data.get("COMMANDS", [])
+        should_reset_ball = False
         for command in commands:
             match command:
                 case "[SHUTDOWN]":
@@ -237,17 +247,21 @@ class RlPipeline(Pipeline):
                 case "[SIM_REBORN]":
                     if hasattr(self.env, "reborn"):
                         logger.warning("Simulation Env reborn!")
-                        self.env.reborn()  # pyright: ignore[reportAttributeAccessIssue]
+                        self._reborn_env()
+                        should_reset_ball = True
                 case "[MOTION_REPLAY]":
                     logger.warning("Motion replay!")
                     if getattr(self.env, "ball_enabled", False):
                         self.env.hold_ball()
+                        should_reset_ball = True
                 case "[POSE_TOGGLE]":
                     self.policy.toggle_motion_adjustments()
 
         self.ctrl_manager.post_step_callback(ctrl_data)
 
         self.policy.post_step_callback(commands)
+        if should_reset_ball:
+            self._place_initial_ball_from_policy()
         if self.visualizer is not None:
             self.policy.debug_viz(self.visualizer, env_data, ctrl_data, extras)
 
@@ -372,6 +386,19 @@ class RlPipeline(Pipeline):
 
         if ball_info.get("released"):
             self.env.release_ball()
+
+    def _place_initial_ball_from_policy(self):
+        if not getattr(self.env, "ball_enabled", False):
+            return
+        get_initial_ball_info = getattr(self.policy, "get_initial_ball_info", None)
+        if get_initial_ball_info is None:
+            return
+        ball_info = get_initial_ball_info()
+        if ball_info is None:
+            return
+
+        self.env.hold_ball()
+        self._apply_ball_info({"ball_info": ball_info})
 
     def step(self, dry_run=False):
         self.env.update()

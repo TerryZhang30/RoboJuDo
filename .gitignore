@@ -132,3 +132,6 @@ assets/motions
 logs
 MUJOCO_LOG.TXT
 assets/resources
+
+bc_assets/
+debug_depth_frames/

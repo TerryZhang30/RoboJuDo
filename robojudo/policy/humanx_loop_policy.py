@@ -24,7 +24,13 @@ class HumanxLoopPolicy(Policy):
             raise FileNotFoundError(f"Model file not found at {cfg_policy.policy_file}")
 
         logger.debug(f"Loading humanx loop policy from {cfg_policy.policy_file}")
-        self.session = ort.InferenceSession(cfg_policy.policy_file)
+        sess_options = ort.SessionOptions()
+        providers = self._resolve_onnx_providers(cfg_policy, device)
+        self._preload_onnx_gpu_dependencies(providers)
+        self.session = ort.InferenceSession(cfg_policy.policy_file, sess_options, providers=providers)
+        active_providers = self.session.get_providers()
+        self._check_onnx_provider_fallback(cfg_policy, providers, active_providers)
+        logger.info(f"ONNX Runtime providers active: {active_providers}")
         self.input_names = [i.name for i in self.session.get_inputs()]
         self.output_names = [o.name for o in self.session.get_outputs()]
 
@@ -70,6 +76,68 @@ class HumanxLoopPolicy(Policy):
 
         self.reset()
 
+    @staticmethod
+    def _resolve_onnx_providers(cfg_policy: HumanxLoopPolicyCfg, device: str) -> list[str]:
+        available = list(ort.get_available_providers())
+        requested = cfg_policy.onnx_providers
+        if requested is None:
+            mode = str(cfg_policy.onnx_device).lower()
+            if mode == "pipeline":
+                mode = str(device).lower()
+            if mode == "auto":
+                requested = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            elif mode in ("cuda", "gpu"):
+                requested = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            elif mode == "tensorrt":
+                requested = ["TensorrtExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"]
+            elif mode == "cpu":
+                requested = ["CPUExecutionProvider"]
+            else:
+                raise ValueError(f"Unknown onnx_device: {cfg_policy.onnx_device}")
+
+        providers = [provider for provider in requested if provider in available]
+        missing = [provider for provider in requested if provider not in available]
+        if missing:
+            logger.warning(
+                f"Requested ONNX providers unavailable: {missing}; available providers: {available}"
+            )
+        if not providers:
+            providers = ["CPUExecutionProvider"] if "CPUExecutionProvider" in available else available
+        return providers
+
+    @staticmethod
+    def _preload_onnx_gpu_dependencies(providers: list[str]) -> None:
+        gpu_providers = {"CUDAExecutionProvider", "TensorrtExecutionProvider"}
+        if not any(provider in gpu_providers for provider in providers):
+            return
+        preload_dlls = getattr(ort, "preload_dlls", None)
+        if preload_dlls is None:
+            return
+        try:
+            preload_dlls()
+        except Exception as exc:
+            logger.warning(f"ONNX Runtime CUDA dependency preload failed: {exc}")
+
+    @staticmethod
+    def _check_onnx_provider_fallback(
+        cfg_policy: HumanxLoopPolicyCfg,
+        requested_providers: list[str],
+        active_providers: list[str],
+    ) -> None:
+        gpu_providers = {"CUDAExecutionProvider", "TensorrtExecutionProvider"}
+        requested_gpu = [provider for provider in requested_providers if provider in gpu_providers]
+        active_gpu = [provider for provider in active_providers if provider in gpu_providers]
+        if not requested_gpu or active_gpu:
+            return
+
+        message = (
+            f"Requested ONNX GPU providers {requested_gpu}, but active providers are {active_providers}. "
+            "The session is running on CPU."
+        )
+        if cfg_policy.onnx_require_gpu:
+            raise RuntimeError(message)
+        logger.warning(message)
+
     def reset(self):
         self.timestep = 0
         self.flag_motion_done = False
@@ -95,6 +163,18 @@ class HumanxLoopPolicy(Policy):
 
     def get_init_dof_pos(self) -> np.ndarray:
         return self.init_angles.copy()
+
+    def get_initial_ball_info(self) -> dict | None:
+        if not hasattr(self.cfg_policy, "track_motion_ball"):
+            return None
+        if not self.cfg_policy.track_motion_ball:
+            return None
+        if self._obj_pos is None or len(self._obj_pos) == 0:
+            return None
+        return {
+            "target_pos": np.asarray(self._obj_pos[0], dtype=np.float64),
+            "released": bool(getattr(self.cfg_policy, "release_ball_after_init", False)),
+        }
 
     def post_step_callback(self, commands: list[str] | None = None):
         self.timestep += 1
@@ -183,5 +263,3 @@ class HumanxLoopPolicy(Policy):
         self.last_action = actions.copy()
 
         return actions * self.action_scales
-
-

@@ -7,6 +7,7 @@ from unitree_cpp import RobotState, SportState, UnitreeController  # type: ignor
 from robojudo.environment import Environment, env_registry
 from robojudo.environment.env_cfgs import UnitreeEnvCfg
 from robojudo.tools.retarget import HandRetarget
+from robojudo.tools.real_depth_camera import RealDepthCamera
 from robojudo.utils.rotation import TransformAlignment
 from robojudo.utils.util_func import quat_rotate_inverse_np
 
@@ -21,6 +22,7 @@ class UnitreeCppEnv(Environment):
         self.enabled: bool = cfg_env.act
         super().__init__(cfg_env=cfg_env, device=device)
         self.RemoteControllerHandler = None
+        self.depth_camera: RealDepthCamera | None = None
 
         cfg_unitree: UnitreeEnvCfg.UnitreeCfg = cfg_env.unitree
 
@@ -54,6 +56,8 @@ class UnitreeCppEnv(Environment):
         self.robot_state: RobotState = None  # pyright: ignore[reportAttributeAccessIssue]
 
         self.unitree = UnitreeController(cfg_unitree_dict)
+        if cfg_env.real_depth_camera.enabled:
+            self.depth_camera = RealDepthCamera(cfg_env.real_depth_camera)
 
         # born place alignment extra for h1 torso
         if self.robot == "h1":
@@ -152,6 +156,15 @@ class UnitreeCppEnv(Environment):
         if self.RemoteControllerHandler:
             self.RemoteControllerHandler(self.robot_state.wireless_remote)
 
+    def get_data(self):
+        env_data = super().get_data()
+        if self.depth_camera is not None:
+            depth_image, timestamp = self.depth_camera.get_depth_image()
+            env_data["depth_image"] = depth_image
+            env_data["image"] = depth_image
+            env_data["camera_timestamp"] = timestamp
+        return env_data
+
     def step(self, pd_target, hand_pose=None):
         assert len(pd_target) == self.num_dofs, "pd_target len should be num_dofs of env"
 
@@ -181,6 +194,9 @@ class UnitreeCppEnv(Environment):
     def shutdown(self):
         # self.set_damping_mode()
         self.enabled = False
+        if self.depth_camera is not None:
+            self.depth_camera.close()
+            self.depth_camera = None
         self.unitree.shutdown()
 
     def set_gains(self, stiffness, damping):

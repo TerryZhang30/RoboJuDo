@@ -229,7 +229,7 @@ class RlLocoMimicPipeline(RlMultiPolicyPipeline):
                 case "[SIM_REBORN]":
                     if hasattr(self.env, "reborn"):
                         logger.warning("Simulation Env reborn!")
-                        self.env.reborn()  # pyright: ignore[reportAttributeAccessIssue]
+                        self._reborn_env()
                 case cmd if cmd.startswith("[POLICY_SWITCH]"):
                     switch_target = cmd.split(",")[1]
                     if switch_target == "NEXT":

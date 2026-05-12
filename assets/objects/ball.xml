@@ -4,11 +4,14 @@
       <freejoint name="ball_joint"/>
       <geom name="ball_geom"
             type="sphere"
-            size="0.12"
+            size="0.119"
             mass="0.3"
             rgba="0.85 0.45 0.15 1"
-            condim="3"
-            friction="2.0 0.1 0.1"/>
+            condim="6"
+            friction="3.5 0.8 0.05"
+            solref="0.004 1.2"
+            solimp="0.98 0.995 0.001 0.5 2"
+            margin="0.002"/>
     </body>
   </worldbody>
 </mujoco>

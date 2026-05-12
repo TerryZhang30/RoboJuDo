@@ -10,13 +10,79 @@ class BallCfg(Config):
     """Configuration for a dynamic ball object in simulation."""
     enabled: bool = False
     radius: float = 0.1
-    mass: float = 0.62
+    mass: float = 0.4
     rgba: list[float] = [0.85, 0.45, 0.15, 1.0]
     condim: int = 6
-    friction: list[float] = [6.0, 0.5, 0.5]
-    init_pos: list[float] = [0.19, -0.03, 1.08]
+    friction: list[float] = [1.5, 0.5, 0.5]
+    solref: list[float] | None = None
+    solimp: list[float] = [1.0, 1.0, 0.001, 0.5, 2.0]
+    margin: float = 0.0
+    init_pos: list[float] = [0.0, -0.0, 0.0]
+    randomize_init_pos: bool = False
+    random_init_xy_range: list[float] = [0.0, 0.0]
+    """Full x/y side lengths in meters. [0.15, 0.15] samples within a 15cm x 15cm square."""
+    random_init_center: Literal["config", "base", "bodies"] = "config"
+    random_init_center_body_names: list[str] = []
+    random_init_center_body_offset: list[float] = [0.0, 0.0, 0.0]
+    """Local offset added to each center body before averaging, useful for foot sole centers."""
     hand_offset_z: float = 0.20
     """Fallback: place ball this far above the midpoint of both hands."""
+
+
+class DepthCameraCfg(Config):
+    """Configuration for an ego depth camera injected into a MuJoCo model."""
+
+    enabled: bool = False
+    camera_name: str = "d435_depth"
+    link_body_name: str = "d435_link"
+    parent_body_name: str = "torso_link"
+    create_link_body: bool = True
+
+    pos: list[float] = [0.0576235, 0.01753, 0.42987]
+    """Position of the synthetic d435 link in parent-body coordinates."""
+
+    quat: list[float] = [
+        0.6592524821011075,
+        0.25570718574871737,
+        -0.25570718574871737,
+        -0.6592524821011075,
+    ]
+    """MuJoCo wxyz quat converted from bc_vision eval.py local_euler_zyx=(0, 0.8307767239493009, 0)."""
+
+    width: int = 224
+    height: int = 224
+    fps: float = 50.0
+    """Depth image update frequency in simulation. Use <= 0 to render every request."""
+    fovy: float = 90.0
+
+    depth_min: float = 0.0
+    depth_max: float = 3.0
+
+    record_video: bool = False
+    record_video_path: str = "debug_depth_frames/run_pipeline_first_person.webm"
+    record_video_fps: float = 30.0
+    record_video_codec: str = "VP90"
+    record_video_every: int = 1
+
+
+class RealDepthCameraCfg(Config):
+    """Configuration for a real depth camera attached to the robot compute."""
+
+    enabled: bool = False
+    camera_type: Literal["realsense"] = "realsense"
+
+    width: int = 224
+    height: int = 224
+    source_width: int = 640
+    source_height: int = 480
+    fps: int = 60
+
+    depth_min: float = 0.01
+    depth_max: float = 3.0
+    timeout_ms: int = 1000
+    max_frame_age_s: float = 0.15
+    serial_no: str | None = None
+    use_background_thread: bool = True
 
 
 class EnvCfg(Config):
@@ -50,6 +116,7 @@ class MujocoEnvCfg(EnvCfg):
     visualize_extras: bool = True  # TODO: remove
 
     ball: BallCfg = BallCfg()
+    depth_camera: DepthCameraCfg = DepthCameraCfg()
 
 
 class RobotEnvCfg(EnvCfg):
@@ -61,6 +128,7 @@ class RobotEnvCfg(EnvCfg):
     odometry_type: Literal["NONE", "DUMMY", "ZED"] = "NONE"
     zed_cfg: ZedOdometryCfg | None = None
     """ZED odometry config, if odometry_type is "ZED", this must be set"""
+    real_depth_camera: RealDepthCameraCfg = RealDepthCameraCfg()
 
     @model_validator(mode="after")
     def check_zed_config(self):

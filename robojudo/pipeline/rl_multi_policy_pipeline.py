@@ -193,7 +193,7 @@ class RlMultiPolicyPipeline(RlPipeline):
                 case "[SIM_REBORN]":
                     if hasattr(self.env, "reborn"):
                         logger.warning("Simulation Env reborn!")
-                        self.env.reborn()  # pyright: ignore[reportAttributeAccessIssue]
+                        self._reborn_env()
                 case "[POLICY_TOGGLE]":
                     logger.warning("Policy toggled!")
                     next_policy_id = (self.policy_manager.current_policy_id + 1) % self.policy_manager.num_policies

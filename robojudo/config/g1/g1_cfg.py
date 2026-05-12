@@ -31,7 +31,8 @@ from .policy.g1_smooth_policy_cfg import G1SmoothPolicyCfg  # noqa: F401
 from .policy.g1_twist_policy_cfg import G1TwistPolicyCfg  # noqa: F401
 from .policy.g1_unitree_policy_cfg import G1UnitreePolicyCfg, G1UnitreeWoGaitDoF, G1UnitreeWoGaitPolicyCfg  # noqa: F401
 from .policy.g1_humanx_policy_cfg import G1HumanxPolicyCfg  # noqa: F401
-from robojudo.environment.env_cfgs import BallCfg  # noqa: F401
+from .policy.g1_pickball_bc_policy_cfg import G1PickballBCPolicyCfg  # noqa: F401
+from robojudo.environment.env_cfgs import BallCfg, DepthCameraCfg, RealDepthCameraCfg  # noqa: F401
 from .policy.g1_stand_policy_cfg import G1StandPolicyCfg  # noqa: F401
 from .policy.g1_humanx_loop_cfg import G1HumanxLoopPolicyCfg  # noqa: F401
 
@@ -421,7 +422,7 @@ class g1_humanx(RlPipelineCfg):
         ball=BallCfg(
             enabled=True,
             radius=0.11,
-            mass=0.1,
+            mass=0.5,
             rgba=[0.85, 0.45, 0.15, 1.0],
             init_pos=[0.19, -0.03, 0.88],
             hand_offset_z=0.02,
@@ -444,6 +445,143 @@ class g1_humanx(RlPipelineCfg):
         },
         motion_data_path="/home/zzx/Documents/RoboJuDo/assets/motions/g1/humanx/BMaster_fake_action_and_shot_hoi_wsf.pkl",
     )
+
+
+@cfg_registry.register
+class g1_pickball_bc(RlPipelineCfg):
+    """
+    G1 pickball_bc task using the BC ONNX and matching motion/object data.
+    """
+
+    robot: str = "g1"
+    sim_slowmo_factor: float = 1.0
+    reset_to_policy_init_pose: bool = True
+
+    env: G1MujocoEnvCfg = G1MujocoEnvCfg(
+        forward_kinematic=None,
+        update_with_fk=False,
+        born_place_align=True,
+        sim_decimation=12,
+        ball=BallCfg(
+            enabled=True,
+            radius=0.119,
+            mass=0.4,
+            rgba=[0.85, 0.45, 0.15, 1.0],
+            condim=6,
+            friction=[3.5, 0.8, 0.05],
+            solref=[0.004, 1.2],
+            solimp=[0.98, 0.995, 0.001, 0.5, 2.0],
+            margin=0.002,
+            init_pos=[0.0, 0.0, 0.12],
+            randomize_init_pos=True,
+            random_init_xy_range=[0.3, 0.3],
+            random_init_center="bodies",
+            random_init_center_body_names=["left_ankle_roll_link", "right_ankle_roll_link"],
+            random_init_center_body_offset=[0.2, 0.0, 0.0],
+            hand_offset_z=0.0,
+        ),
+        depth_camera=DepthCameraCfg(
+            enabled=True,
+            camera_name="d435_depth",
+            link_body_name="d435_link",
+            parent_body_name="torso_link",
+            create_link_body=True,
+            pos=[0.0576235, 0.01753, 0.42987],
+            quat=[
+                0.6592524821011075,
+                0.25570718574871737,
+                -0.25570718574871737,
+                -0.6592524821011075,
+            ],
+            width=224,
+            height=224,
+            fps=50.0,
+            fovy=90.0,
+            depth_min=0.01,
+            depth_max=3.0,
+            record_video=True,
+            record_video_path="debug_depth_frames/run_pipeline_first_person.webm",
+            record_video_fps=50.0,
+            record_video_codec="VP90",
+            record_video_every=1,
+        ),
+    )
+
+    ctrl: list[KeyboardCtrlCfg] = [
+        KeyboardCtrlCfg(
+            triggers={
+                "i": "[SIM_REBORN]",
+                "o": "[SHUTDOWN]",
+                "r": "[MOTION_RESET]",
+                "t": "[MOTION_REPLAY]",
+            }
+        ),
+    ]
+
+    policy: G1PickballBCPolicyCfg = G1PickballBCPolicyCfg(
+        policy_file_override="/home/zzx/Documents/RoboJuDo/bc_assets/epoch_0050_bc_3k.onnx"
+    )
+
+
+@cfg_registry.register
+class pickball_bc(g1_pickball_bc):
+    """Alias for the G1 pickball BC MuJoCo task."""
+
+
+@cfg_registry.register
+class g1_pickball_bc_real(g1_pickball_bc):
+    """G1 pickball BC task on the real robot with an attached RealSense depth camera."""
+
+    env: G1RealEnvCfg = G1RealEnvCfg(
+        env_type="UnitreeCppEnv",
+        unitree=G1UnitreeCfg(net_if="eth0", control_dt=0.02),
+        real_depth_camera=RealDepthCameraCfg(
+            enabled=True,
+            camera_type="realsense",
+            width=224,
+            height=224,
+            source_width=640,
+            source_height=480,
+            fps=60,
+            depth_min=0.01,
+            depth_max=3.0,
+            timeout_ms=1000,
+            max_frame_age_s=0.15,
+            use_background_thread=True,
+        ),
+    )
+
+    ctrl: list[UnitreeCtrlCfg] = [
+        UnitreeCtrlCfg(
+            triggers={
+                "L2": "[SHUTDOWN]",
+                "Y": "[MOTION_RESET]",
+            }
+        )
+    ]
+
+    policy: G1PickballBCPolicyCfg = G1PickballBCPolicyCfg(
+        policy_file_override="/home/zzx/Documents/RoboJuDo/bc_assets/epoch_0050_bc_5k.onnx",
+        require_image=True,
+        max_image_age_s=0.2,
+        max_joint_delta_rad=0.6,
+        joint_delta_safety_mode="hold",
+    )
+
+    do_safety_check: bool = True
+    wait_for_zero_torque_start: bool = True
+    prepare_duration_s: float = 2.0
+    prepare_reset_before_done: bool = False
+    wait_for_start_confirmation: bool = True
+    start_confirm_button: str = "L1"
+    shutdown_button: str = "L2"
+    start_hold_stiffness_scale: float = 3.0
+    start_hold_damping_scale: float = 3.0
+
+
+@cfg_registry.register
+class pickball_bc_real(g1_pickball_bc_real):
+    """Alias for the real G1 pickball BC task."""
 
 
 

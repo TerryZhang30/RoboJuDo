@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import Field, field_validator, model_validator
 
 from robojudo.config import ASSETS_DIR, Config
@@ -514,6 +516,12 @@ class HumanxLoopPolicyCfg(PolicyCfg):
     action_scale: float = 1.0
     action_clip: float = 100.0
     actions_scale: float = 1.0
+    onnx_device: str = "cpu"
+    """ONNX Runtime target: cpu, cuda/gpu, tensorrt, auto, or pipeline."""
+    onnx_providers: list[str] | None = None
+    """Optional explicit ONNX Runtime providers. When unset, providers are derived from onnx_device."""
+    onnx_require_gpu: bool = False
+    """Raise instead of falling back to CPU when a requested GPU provider cannot be activated."""
 
     obs_scales: ObsScalesCfg = ObsScalesCfg()
 
@@ -524,3 +532,85 @@ class HumanxLoopPolicyCfg(PolicyCfg):
     dof_effort_limits: list[float]
 
     motion_adjustments: dict[int, float] = {}
+
+
+class PickballBCPolicyCfg(PolicyCfg):
+    """Configuration for the pickball behavior-cloning ONNX policy."""
+
+    class ObsScalesCfg(Config):
+        dof_pos: float = 1.0
+        dof_vel: float = 0.05
+        base_ang_vel: float = 0.25
+
+    policy_type: str = "PickballBCPolicy"
+    policy_name: str = "pickball_bc"
+
+    @property
+    def policy_file(self) -> str:
+        policy_file = ASSETS_DIR / f"models/{self.robot}/pickball_bc/{self.policy_name}.onnx"
+        return policy_file.as_posix()
+
+    motion_data_path_override: str | None = Field(default=None, alias="motion_data_path")
+
+    @property
+    def motion_data_path(self) -> str:
+        if self.motion_data_path_override is None:
+            motion_data_path = ASSETS_DIR / f"motions/{self.robot}/pickball_bc/{self.policy_name}.pkl"
+            return motion_data_path.as_posix()
+        return self.motion_data_path_override
+
+    disable_autoload: bool = True
+    action_scale: float = 1.0
+    action_clip: float = 100.0
+    actions_scale: float = 1.0
+
+    onnx_device: str = "cpu"
+    """ONNX Runtime target: cpu, cuda/gpu, tensorrt, auto, or pipeline."""
+    onnx_providers: list[str] | None = None
+    """Optional explicit ONNX Runtime providers. When unset, providers are derived from onnx_device."""
+    onnx_require_gpu: bool = False
+    """Raise instead of falling back to CPU when a requested GPU provider cannot be activated."""
+
+    obs_scales: ObsScalesCfg = ObsScalesCfg()
+
+    obs_hist_length: dict[str, int] = {}
+    obs_hist_dims: dict[str, int] = {}
+
+    vector_obs_keys: list[str] = [
+        "dof_pos",
+        "dof_vel",
+        "base_ang_vel",
+        "projected_gravity",
+        "phase",
+        "pd_error",
+        "actions",
+        "history_actor",
+    ]
+
+    dof_names: list[str]
+    dof_effort_limits: list[float]
+    motion_adjustments: dict[int, float] = {}
+    phase_dt: float = 1.0 / 80.0
+
+    image_shape: list[int] = [224, 224, 1]
+    image_fill_value: float = 0.0
+    image_obs_keys: list[str] = ["image", "depth_image", "camera_image"]
+    warn_on_image_fallback: bool = True
+    require_image: bool = False
+    max_image_age_s: float | None = None
+
+    track_motion_ball: bool = True
+    release_ball_at_stand_frame: bool = True
+    release_ball_after_init: bool = False
+    apply_action_scales: bool = True
+
+    max_joint_delta_rad: float | None = None
+    """Max allowed per-joint target change between two consecutive policy outputs, in radians."""
+    joint_delta_safety_mode: Literal["raise", "hold", "zero", "freeze"] = "raise"
+    """raise: stop; hold: hold this frame; zero: output zero; freeze: hold forever until reset."""
+
+    @field_validator("max_joint_delta_rad")
+    def check_max_joint_delta_rad(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError("max_joint_delta_rad must be positive")
+        return v

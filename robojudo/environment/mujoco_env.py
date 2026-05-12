@@ -1,5 +1,6 @@
 import logging
 import time
+from pathlib import Path
 
 import mujoco
 import mujoco_viewer
@@ -26,12 +27,24 @@ class MujocoEnv(Environment):
         self.control_dt = self.sim_dt * self.sim_decimation
 
         self._ball_cfg = cfg_env.ball
+        self._depth_camera_cfg = cfg_env.depth_camera
         self._ball_body_id: int = -1
         self._ball_jnt_qpos_addr: int = -1
         self._ball_released: bool = False
+        self._depth_camera_id: int = -1
+        self._depth_renderer: mujoco.Renderer | None = None
+        self._depth_image: np.ndarray | None = None
+        self._depth_video_writer = None
+        self._depth_video_frame_count: int = 0
+        self._depth_video_source_frame_count: int = 0
+        self._depth_video_atexit_registered: bool = False
+        self._depth_image_sim_time: float = -1.0
+        self._depth_image_wall_timestamp: float = 0.0
+        self._depth_image_frame_id: int = 0
+        self._depth_video_last_source_frame_id: int = -1
 
-        if cfg_env.ball.enabled:
-            self.model, self.data = self._build_model_with_ball(cfg_env)
+        if cfg_env.ball.enabled or cfg_env.depth_camera.enabled:
+            self.model, self.data = self._build_model_with_extras(cfg_env)
         else:
             self.model = mujoco.MjModel.from_xml_path(cfg_env.xml)  # pyright: ignore[reportAttributeAccessIssue]
             self.data = mujoco.MjData(self.model)  # pyright: ignore[reportAttributeAccessIssue]
@@ -57,6 +70,9 @@ class MujocoEnv(Environment):
         self.viewer.cam.azimuth = 180.0
         # self.viewer._paused = True
 
+        if cfg_env.depth_camera.enabled:
+            self._init_depth_renderer()
+
         if cfg_env.visualize_extras:
             self.visualizer = MujocoVisualizer(self.viewer)
         else:
@@ -70,11 +86,46 @@ class MujocoEnv(Environment):
     # Ball helpers
     # ------------------------------------------------------------------
 
-    def _build_model_with_ball(self, cfg_env: MujocoEnvCfg):
-        """Use MjSpec to inject a free-body ball into the scene."""
-        ball = cfg_env.ball
+    def _build_model_with_extras(self, cfg_env: MujocoEnvCfg):
+        """Use MjSpec to inject optional task objects and sensors."""
         spec = mujoco.MjSpec.from_file(cfg_env.xml)  # pyright: ignore[reportAttributeAccessIssue]
 
+        if cfg_env.depth_camera.enabled:
+            self._add_depth_camera_to_spec(spec, cfg_env)
+
+        if cfg_env.ball.enabled:
+            self._add_ball_to_spec(spec, cfg_env)
+
+        model = spec.compile()
+        data = mujoco.MjData(model)  # pyright: ignore[reportAttributeAccessIssue]
+
+        if cfg_env.depth_camera.enabled:
+            self._depth_camera_id = mujoco.mj_name2id(  # pyright: ignore[reportAttributeAccessIssue]
+                model, mujoco.mjtObj.mjOBJ_CAMERA, cfg_env.depth_camera.camera_name
+            )
+            if self._depth_camera_id < 0:
+                raise ValueError(f"Depth camera {cfg_env.depth_camera.camera_name} was not added to MuJoCo model")
+            logger.info(
+                f"Depth camera added: camera_id={self._depth_camera_id}, "
+                f"name={cfg_env.depth_camera.camera_name}"
+            )
+
+        if cfg_env.ball.enabled:
+            self._ball_body_id = mujoco.mj_name2id(  # pyright: ignore[reportAttributeAccessIssue]
+                model, mujoco.mjtObj.mjOBJ_BODY, "ball"
+            )
+            ball_jnt_id = mujoco.mj_name2id(  # pyright: ignore[reportAttributeAccessIssue]
+                model, mujoco.mjtObj.mjOBJ_JOINT, "ball_joint"
+            )
+            self._ball_jnt_qpos_addr = int(model.jnt_qposadr[ball_jnt_id])
+            logger.info(
+                f"Ball added: body_id={self._ball_body_id}, "
+                f"qpos_addr={self._ball_jnt_qpos_addr}, nq={model.nq}"
+            )
+        return model, data
+
+    def _add_ball_to_spec(self, spec, cfg_env: MujocoEnvCfg):
+        ball = cfg_env.ball
         body = spec.worldbody.add_body()
         body.name = "ball"
         body.pos = ball.init_pos
@@ -90,24 +141,160 @@ class MujocoEnv(Environment):
         geom.rgba = ball.rgba
         geom.condim = ball.condim
         geom.friction = ball.friction
-        # geom.solref = [-1000, -100]
-        geom.solimp = [1.0, 1.0, 0.001, 0.5, 2.0]
+        if ball.solref is not None:
+            geom.solref = ball.solref
+        geom.solimp = ball.solimp
+        if hasattr(geom, "margin"):
+            geom.margin = ball.margin
 
-        model = spec.compile()
-        data = mujoco.MjData(model)  # pyright: ignore[reportAttributeAccessIssue]
+    def _add_depth_camera_to_spec(self, spec, cfg_env: MujocoEnvCfg):
+        camera = cfg_env.depth_camera
+        link_body = spec.worldbody.find_child(camera.link_body_name)
 
-        self._ball_body_id = mujoco.mj_name2id(  # pyright: ignore[reportAttributeAccessIssue]
-            model, mujoco.mjtObj.mjOBJ_BODY, "ball"
+        if link_body is None:
+            if not camera.create_link_body:
+                raise ValueError(f"Depth camera link body {camera.link_body_name} not found in MuJoCo model")
+
+            parent_body = spec.worldbody.find_child(camera.parent_body_name)
+            if parent_body is None:
+                raise ValueError(f"Depth camera parent body {camera.parent_body_name} not found in MuJoCo model")
+
+            link_body = parent_body.add_body()
+            link_body.name = camera.link_body_name
+            link_body.pos = camera.pos
+            logger.info(
+                f"Created synthetic depth camera link body {camera.link_body_name} "
+                f"under {camera.parent_body_name} at {camera.pos}"
+            )
+
+        cam = link_body.add_camera()
+        cam.name = camera.camera_name
+        cam.pos = [0.0, 0.0, 0.0]
+        cam.quat = camera.quat
+        cam.fovy = camera.fovy
+        cam.resolution = [camera.width, camera.height]
+
+    def _init_depth_renderer(self):
+        camera = self._depth_camera_cfg
+        self._depth_renderer = mujoco.Renderer(
+            self.model,
+            height=camera.height,
+            width=camera.width,
         )
-        ball_jnt_id = mujoco.mj_name2id(  # pyright: ignore[reportAttributeAccessIssue]
-            model, mujoco.mjtObj.mjOBJ_JOINT, "ball_joint"
-        )
-        self._ball_jnt_qpos_addr = int(model.jnt_qposadr[ball_jnt_id])
-        logger.info(
-            f"Ball added: body_id={self._ball_body_id}, "
-            f"qpos_addr={self._ball_jnt_qpos_addr}, nq={model.nq}"
-        )
-        return model, data
+        self._depth_renderer.enable_depth_rendering()
+        self._depth_image = np.full((camera.height, camera.width, 1), camera.depth_max, dtype=np.float32)
+
+    def _depth_frame_period(self) -> float:
+        fps = float(self._depth_camera_cfg.fps)
+        if fps <= 0.0:
+            return 0.0
+        return 1.0 / fps
+
+    def _render_depth_image(self) -> np.ndarray:
+        camera = self._depth_camera_cfg
+        if not camera.enabled:
+            return np.empty((0, 0, 1), dtype=np.float32)
+        if self._depth_renderer is None:
+            self._init_depth_renderer()
+
+        sim_time = float(self.data.time)
+        frame_period = self._depth_frame_period()
+        elapsed = sim_time - self._depth_image_sim_time
+        if (
+            self._depth_image is not None
+            and self._depth_image_sim_time >= 0.0
+            and elapsed >= 0.0
+            and frame_period > 0.0
+            and elapsed < frame_period - 1e-9
+        ):
+            return self._depth_image.copy()
+
+        assert self._depth_renderer is not None
+        self._depth_renderer.update_scene(self.data, camera=self._depth_camera_id)
+        depth = self._depth_renderer.render().astype(np.float32)
+        depth = np.nan_to_num(depth, nan=camera.depth_max, posinf=camera.depth_max, neginf=-camera.depth_max)
+        depth = np.abs(depth)
+        depth = np.clip(depth, camera.depth_min, camera.depth_max)
+        self._depth_image = depth[..., None]
+        self._depth_image_sim_time = sim_time
+        self._depth_image_wall_timestamp = time.time()
+        self._depth_image_frame_id += 1
+        return self._depth_image.copy()
+
+    def _depth_to_rgb_uint8(self, depth_image: np.ndarray) -> np.ndarray:
+        camera = self._depth_camera_cfg
+        depth = np.asarray(depth_image, dtype=np.float32)
+        if depth.ndim == 3 and depth.shape[-1] == 1:
+            depth = depth[..., 0]
+        depth = np.nan_to_num(depth, nan=camera.depth_max, posinf=camera.depth_max, neginf=-camera.depth_max)
+        depth = np.abs(depth)
+        depth = np.clip(depth, camera.depth_min, camera.depth_max)
+        denom = max(camera.depth_max - camera.depth_min, 1e-6)
+        gray = ((depth - camera.depth_min) / denom * 255.0).clip(0, 255).astype(np.uint8)
+        return np.repeat(gray[..., None], 3, axis=-1)
+
+    def _init_depth_video_writer(self):
+        if self._depth_video_writer is not None:
+            return
+
+        import atexit
+        import cv2
+
+        camera = self._depth_camera_cfg
+        path = Path(camera.record_video_path)
+        if path.suffix.lower() != ".webm":
+            path = path.with_suffix(".webm")
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        codecs = [camera.record_video_codec, "VP90", "VP80"]
+        for codec in dict.fromkeys(codecs):
+            if len(codec) != 4:
+                logger.warning(f"Skipping invalid WebM codec {codec!r}; codec must be 4 characters")
+                continue
+            writer = cv2.VideoWriter(
+                str(path),
+                cv2.VideoWriter_fourcc(*codec),
+                float(camera.record_video_fps),
+                (int(camera.width), int(camera.height)),
+            )
+            if writer.isOpened():
+                self._depth_video_writer = writer
+                logger.info(f"Recording first-person depth video to {path} using codec={codec}")
+                break
+            writer.release()
+
+        if self._depth_video_writer is None:
+            raise RuntimeError(f"Failed to create first-person WebM writer at {path}")
+
+        if not self._depth_video_atexit_registered:
+            atexit.register(self._close_depth_video_writer)
+            self._depth_video_atexit_registered = True
+
+    def _record_depth_video_frame(self, depth_image: np.ndarray):
+        camera = self._depth_camera_cfg
+        if not camera.record_video:
+            return
+        if self._depth_image_frame_id <= self._depth_video_last_source_frame_id:
+            return
+        self._depth_video_last_source_frame_id = self._depth_image_frame_id
+
+        stride = max(1, int(camera.record_video_every))
+        self._depth_video_source_frame_count += 1
+        if (self._depth_video_source_frame_count - 1) % stride != 0:
+            return
+
+        self._init_depth_video_writer()
+        assert self._depth_video_writer is not None
+        frame = self._depth_to_rgb_uint8(depth_image)
+        self._depth_video_writer.write(frame)
+        self._depth_video_frame_count += 1
+
+    def _close_depth_video_writer(self):
+        if self._depth_video_writer is None:
+            return
+        self._depth_video_writer.release()
+        self._depth_video_writer = None
+        logger.info(f"Closed first-person depth video after {self._depth_video_frame_count} frames")
 
     @property
     def ball_enabled(self) -> bool:
@@ -128,6 +315,7 @@ class MujocoEnv(Environment):
             mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "ball_joint")  # pyright: ignore[reportAttributeAccessIssue]
         ]
         self.data.qvel[vel_addr: vel_addr + 6] = 0.0
+        mujoco.mj_forward(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
 
     def get_ball_pos(self) -> np.ndarray:
         if not self.ball_enabled:
@@ -155,6 +343,54 @@ class MujocoEnv(Environment):
             return np.array(self._ball_cfg.init_pos, dtype=np.float64)
         return (self.data.geom_xpos[left_id] + self.data.geom_xpos[right_id]) / 2.0
 
+    def _body_world_pos_with_offset(self, body_name: str, local_offset: np.ndarray) -> np.ndarray | None:
+        body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)  # pyright: ignore[reportAttributeAccessIssue]
+        if body_id < 0:
+            logger.warning(f"Ball random init center body {body_name!r} not found; ignoring it.")
+            return None
+        body_pos = np.asarray(self.data.xpos[body_id], dtype=np.float64)
+        body_rot = np.asarray(self.data.xmat[body_id], dtype=np.float64).reshape(3, 3)
+        return body_pos + body_rot @ local_offset
+
+    def _ball_random_init_center(self, pos: np.ndarray) -> np.ndarray:
+        center_mode = self._ball_cfg.random_init_center
+        center = pos.copy()
+
+        if center_mode == "base":
+            center[:2] = np.asarray(self.data.qpos[:2], dtype=np.float64)
+        elif center_mode == "bodies":
+            local_offset = np.asarray(self._ball_cfg.random_init_center_body_offset, dtype=np.float64).reshape(3)
+            body_positions = [
+                body_pos
+                for body_name in self._ball_cfg.random_init_center_body_names
+                if (body_pos := self._body_world_pos_with_offset(body_name, local_offset)) is not None
+            ]
+            if body_positions:
+                center[:2] = np.mean(body_positions, axis=0)[:2]
+            else:
+                logger.warning("No valid ball random init center bodies found; falling back to BallCfg.init_pos.")
+        elif center_mode != "config":
+            raise ValueError(f"Unsupported ball random init center mode: {center_mode}")
+
+        return center
+
+    def _sample_ball_init_pos(self) -> np.ndarray:
+        pos = np.asarray(self._ball_cfg.init_pos, dtype=np.float64).copy()
+        if not self._ball_cfg.randomize_init_pos:
+            return pos
+
+        center = self._ball_random_init_center(pos)
+        xy_range = np.asarray(self._ball_cfg.random_init_xy_range, dtype=np.float64).reshape(-1)
+        if xy_range.shape[0] == 1:
+            xy_range = np.repeat(xy_range, 2)
+        if xy_range.shape[0] != 2:
+            raise ValueError("BallCfg.random_init_xy_range must contain one value or [x_range, y_range].")
+
+        xy_offset = np.random.uniform(-0.5 * xy_range, 0.5 * xy_range)
+        pos[:2] = center[:2] + xy_offset
+        pos[2] = max(pos[2], self._ball_cfg.radius + self._ball_cfg.margin)
+        return pos
+
     def update_dof_cfg(self, override_cfg=None):
         super().update_dof_cfg(override_cfg=override_cfg)
         if hasattr(self, "model"):
@@ -176,7 +412,7 @@ class MujocoEnv(Environment):
         self._dof_qpos_indices = np.asarray(qpos_indices, dtype=np.int32)
         self._dof_qvel_indices = np.asarray(qvel_indices, dtype=np.int32)
 
-    def reborn(self, init_qpos=None):
+    def reborn(self, init_qpos=None, init_dof_pos=None):
         if init_qpos is not None:
             self.data.qpos[0:7] = init_qpos
             self.data.qvel[:] = 0.0
@@ -187,9 +423,20 @@ class MujocoEnv(Environment):
         else:
             mujoco.mj_resetData(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
 
+        if init_dof_pos is not None:
+            init_dof_pos = np.asarray(init_dof_pos, dtype=np.float64).reshape(-1)
+            if init_dof_pos.shape[0] != self.num_dofs:
+                raise ValueError(
+                    f"init_dof_pos length {init_dof_pos.shape[0]} does not match env num_dofs {self.num_dofs}"
+                )
+            self.data.qpos[self._dof_qpos_indices] = init_dof_pos
+            self.data.qvel[:] = 0.0
+            self.data.ctrl[:] = 0.0
+
         if self.ball_enabled:
             self._ball_released = False
-            self.set_ball_pos(np.array([0.0, 0.0, -1.0]))
+            mujoco.mj_forward(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
+            self.set_ball_pos(self._sample_ball_init_pos())
         mujoco.mj_forward(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
 
     def reset(self):
@@ -268,8 +515,24 @@ class MujocoEnv(Environment):
             mujoco.mj_step(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
             self.update(simple=True)
         self.update(simple=False)
+        if self._depth_camera_cfg.enabled and self._depth_camera_cfg.record_video:
+            self._record_depth_video_frame(self._render_depth_image())
+
+    def get_data(self):
+        env_data = super().get_data()
+        if self._depth_camera_cfg.enabled:
+            depth_image = self._render_depth_image()
+            env_data["depth_image"] = depth_image
+            env_data["image"] = depth_image
+            env_data["camera_timestamp"] = self._depth_image_wall_timestamp
+            env_data["camera_sim_time"] = self._depth_image_sim_time
+        return env_data
 
     def shutdown(self):
+        self._close_depth_video_writer()
+        if self._depth_renderer is not None:
+            self._depth_renderer.close()
+            self._depth_renderer = None
         self.viewer.close()
 
 
