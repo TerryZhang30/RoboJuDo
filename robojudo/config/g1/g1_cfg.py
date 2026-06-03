@@ -371,36 +371,6 @@ class g1_switch_beyondmimic(RlMultiPolicyPipelineCfg):
     ]
 
 
-@cfg_registry.register
-class g1_amo_adjusted(RlPipelineCfg):
-    """
-    AMO Policy with motion adjustments from Humanx.
-    Wrist joints are set directly; other joints shift AMO's default targets.
-    """
-
-    robot: str = "g1"
-    env: G1MujocoEnvCfg = G1MujocoEnvCfg()
-
-    ctrl: list[JoystickCtrlCfg | KeyboardCtrlCfg] = [
-        JoystickCtrlCfg(),
-        KeyboardCtrlCfg(),
-    ]
-
-    policy: G1AmoPolicyCfg = G1AmoPolicyCfg(
-        motion_adjustments={
-            -6: 0.2,       # right_shoulder_roll  → obs target
-            -13: -0.1,     # left_shoulder_roll   → obs target
-            -8: -0.3,      # left_wrist_yaw       → direct set
-            -1:0.3,        # right_wrist_yaw
-            4: 0.05,        # left_ankle_pitch      → action target
-            10: 0.05,       # right_ankle_pitch     → action target
-        },
-        motion_data_path_override="/home/zzx/Documents/RoboJuDo/assets/motions/g1/humanx/jumpshot.pkl" ,
-        use_motion_as_default_pose=True,
-
-    )
-
-
 # TIPS: check g1_loco_mimic_cfg.py for more complex examples
 
 
@@ -476,52 +446,6 @@ class g1_humanx_real(g1_humanx):
     shutdown_button: str = "L2"
     start_hold_stiffness_scale: float = 3.0
     start_hold_damping_scale: float = 3.0
-
-@cfg_registry.register
-class g1_humanx_amo_adjusted_real(g1_humanx_real):
-    """Humanx Policy with AMO-like motion adjustments, on Real G1 Robot"""
-
-    pipeline_type: str = "RlMultiPolicyPipeline"
-
-    switch_prepare_duration_s: float = 1.5
-
-    policies: list[G1AmoPolicyCfg | G1HumanxPolicyCfg] = [
-        G1AmoPolicyCfg(
-            motion_adjustments={
-                -5: 0.3,
-                -12: -0.2,
-                -1: -0.3,
-                4: 0.05,
-                10: 0.05,
-            },
-            use_motion_as_default_pose=False,
-        ),
-        G1HumanxPolicyCfg(
-            policy_file_override="/home/zzx/Documents/RoboJuDo/assets/models/g1/humanx/jumpshot.pt"
-            ),
-    ]
-    
-    ctrl: list[UnitreeCtrlCfg] = [
-        UnitreeCtrlCfg(
-            triggers_extra={
-                "X": "[POLICY_SWITCH],0",
-                "Y": "[POLICY_SWITCH],1",
-                "L2": "[SHUTDOWN]",
-                "R2": "[POSE_TOGGLE]",
-            }
-        ),
-    ]
-
-    do_safety_check: bool = True
-    wait_for_zero_torque_start: bool = True
-    zero_torque_start_button: str = "Start"
-    prepare_duration_s: float = 2.0
-    prepare_reset_before_done: bool = False
-    wait_for_start_confirmation: bool = True
-    start_confirm_button: str = "L1"
-    shutdown_button: str = "L2"
-    start_hold_stiffness_scale: float = 1.0
-    start_hold_damping_scale: float = 1.0
 
 @cfg_registry.register
 class g1_humanx_loop(RlPipelineCfg):
